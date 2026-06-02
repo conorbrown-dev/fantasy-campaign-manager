@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CampaignTheme {
+  PURPLE_LILAC
+  MINT_YELLOW
+  PINK_GRAY
+  DM_FORGE
+}
+
+enum QuestStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
+enum EncounterStatus {
+  PLANNED
+  ACTIVE
+  RESOLVED
+}
+
+model Campaign {
+  id               String      @id @default(cuid())
+  slug             String      @unique
+  name             String
+  dmPasswordHash   String
+  theme            CampaignTheme @default(PURPLE_LILAC)
+  currentBgmAssetId String?
+  bgmStartedAt     DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  players          Player[]
+  quests           Quest[]
+  encounters       Encounter[]
+  assets           Asset[]
+  mapPins          MapPin[]
+}
+
+model Player {
+  id          String   @id @default(cuid())
+  campaignId  String
+  name        String
+  iconUrl     String?
+  stats       Json
+  equipment   Json
+  money       Json
+  rolls       Json
+  abilities   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model Quest {
+  id          String      @id @default(cuid())
+  campaignId  String
+  parentId    String?
+  title       String
+  summary     String
+  status      QuestStatus @default(PLANNED)
+  loot        Loot[]
+  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  parent      Quest?      @relation("SubQuests", fields: [parentId], references: [id])
+  subQuests   Quest[]     @relation("SubQuests")
+}
+
+model Loot {
+  id        String @id @default(cuid())
+  questId   String
+  name      String
+  quantity  Int    @default(1)
+  notes     String?
+  quest     Quest  @relation(fields: [questId], references: [id], onDelete: Cascade)
+}
+
+model Creature {
+  id                   String      @id @default(cuid())
+  name                 String
+  imageUrl             String?
+  preferredEnvironment String
+  armorClass           Int?
+  hitPoints            Int?
+  attackInfo           Json
+  rolls                Json
+  notes                String?
+  encounterCreatures   EncounterCreature[]
+}
+
+model Encounter {
+  id          String      @id @default(cuid())
+  campaignId  String
+  name        String
+  status      EncounterStatus @default(PLANNED)
+  mapAssetId  String?
+  ruleNotes   Json
+  creatures   EncounterCreature[]
+  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model EncounterCreature {
+  id          String    @id @default(cuid())
+  encounterId String
+  creatureId  String
+  nickname    String?
+  currentHp   Int?
+  initiative  Int?
+  encounter   Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  creature    Creature  @relation(fields: [creatureId], references: [id], onDelete: Restrict)
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  campaignId  String
+  kind        String
+  name        String
+  url         String
+  mimeType    String
+  createdAt   DateTime @default(now())
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model MapPin {
+  id          String   @id @default(cuid())
+  campaignId  String
+  label       String
+  iconUrl     String?
+  x           Float
+  y           Float
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
