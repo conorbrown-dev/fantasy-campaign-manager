@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { vi } from "vitest";
 
 export type MockPrismaService = ReturnType<typeof createMockPrismaService>;
 
@@ -8,27 +8,41 @@ export function createMockPrismaService() {
       create: vi.fn(),
       findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
-      update: vi.fn()
+      update: vi.fn(),
     },
     player: {
       create: vi.fn(),
-      update: vi.fn()
+      update: vi.fn(),
     },
     quest: {
-      create: vi.fn()
+      create: vi.fn(),
     },
     creature: {
       create: vi.fn(),
-      findMany: vi.fn()
+      findMany: vi.fn(),
     },
     encounter: {
-      create: vi.fn()
+      create: vi.fn(),
     },
     asset: {
-      create: vi.fn()
+      create: vi.fn(),
     },
     mapPin: {
-      create: vi.fn()
-    }
+      create: vi.fn(),
+    },
+    knowledgeDocument: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
+    },
+    knowledgeChunk: {
+      create: vi.fn(),
+      findMany: vi.fn(),
+      update: vi.fn(),
+    },
   };
 }

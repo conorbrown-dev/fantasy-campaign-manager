@@ -4,13 +4,16 @@ import { io } from "socket.io-client";
 import {
   BookOpen,
   Coins,
+  FileText,
   Map,
-  Music,
+  MessageSquare,
+  RefreshCw,
   Save,
   Search,
   Shield,
   Skull,
   Swords,
+  Trash2,
   Upload,
   UserPlus,
   Volume2,
@@ -68,6 +71,73 @@ type Campaign = {
     y: number;
   }>;
 };
+
+type SourceType =
+  | "SRD"
+  | "Open5e"
+  | "FiveEBits"
+  | "Homebrew"
+  | "SessionNotes"
+  | "CustomMonster"
+  | "CustomSpell"
+  | "HouseRule";
+
+type RetrievalMode =
+  | "All"
+  | "RulesOnly"
+  | "HomebrewOnly"
+  | "RulesAndHomebrew"
+  | "SessionNotesOnly";
+
+type KnowledgeDocument = {
+  id: string;
+  sourceName: string;
+  sourceType: SourceType;
+  originalFileName: string;
+  importedAt: string;
+  status: string;
+  errorMessage?: string;
+  chunkCount: number;
+  attributionText?: string;
+  licenseText?: string;
+};
+
+type KnowledgeSource = {
+  id: string;
+  sourceName: string;
+  sourceType: SourceType;
+  title: string;
+  sectionPath: string[];
+  pageNumber?: number | null;
+  relevanceScore: number;
+  textPreview: string;
+};
+
+type KnowledgeChatResponse = {
+  answer: string;
+  sources: KnowledgeSource[];
+  retrievedChunks: Array<KnowledgeSource & { text: string }>;
+  llmStatus?: string;
+};
+
+const sourceTypes: SourceType[] = [
+  "SRD",
+  "Open5e",
+  "FiveEBits",
+  "Homebrew",
+  "SessionNotes",
+  "CustomMonster",
+  "CustomSpell",
+  "HouseRule",
+];
+
+const retrievalModes: RetrievalMode[] = [
+  "All",
+  "RulesOnly",
+  "HomebrewOnly",
+  "RulesAndHomebrew",
+  "SessionNotesOnly",
+];
 
 const themeClasses: Record<
   ThemeKey,
@@ -127,6 +197,17 @@ function App() {
   );
   const [muted, setMuted] = useState(false);
   const [creatures, setCreatures] = useState<Creature[]>([]);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState<
+    KnowledgeDocument[]
+  >([]);
+  const [knowledgeResults, setKnowledgeResults] = useState<KnowledgeSource[]>(
+    [],
+  );
+  const [knowledgeChat, setKnowledgeChat] =
+    useState<KnowledgeChatResponse | null>(null);
+  const [knowledgeDocumentsLoaded, setKnowledgeDocumentsLoaded] =
+    useState(false);
+  const [autoSrdImportAttempted, setAutoSrdImportAttempted] = useState(false);
   const [status, setStatus] = useState("");
 
   const theme =
@@ -157,9 +238,55 @@ function App() {
     }
   }
 
+  async function loadKnowledgeDocuments() {
+    if (!route.slug || !route.isDm || !dmToken) return;
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/documents`),
+      {
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+    if (response.ok) {
+      setKnowledgeDocuments(await response.json());
+      setKnowledgeDocumentsLoaded(true);
+    }
+  }
+
   React.useEffect(() => {
     void loadCampaign();
   }, [dmToken]);
+
+  React.useEffect(() => {
+    void loadKnowledgeDocuments();
+  }, [dmToken]);
+
+  React.useEffect(() => {
+    const hasBundledSrd = knowledgeDocuments.some(
+      (document) =>
+        document.sourceType === "SRD" &&
+        document.originalFileName === "SRD_CC_v5.1.pdf",
+    );
+
+    if (
+      route.isDm &&
+      campaign &&
+      dmToken &&
+      knowledgeDocumentsLoaded &&
+      !autoSrdImportAttempted &&
+      !hasBundledSrd
+    ) {
+      setAutoSrdImportAttempted(true);
+      setStatus("Importing SRD 5.1 as the default rules source...");
+      void importBundledSrd();
+    }
+  }, [
+    autoSrdImportAttempted,
+    campaign,
+    dmToken,
+    knowledgeDocuments,
+    knowledgeDocumentsLoaded,
+    route.isDm,
+  ]);
 
   React.useEffect(() => {
     function handleBgmSync(payload: { asset: Asset; startedAt: string }) {
@@ -323,6 +450,135 @@ function App() {
     await loadCampaign();
   }
 
+  async function importKnowledge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/import`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+        body: data,
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not import that file."));
+      return;
+    }
+
+    setStatus("Reference file imported and indexed.");
+    event.currentTarget.reset();
+    await loadKnowledgeDocuments();
+  }
+
+  async function importBundledSrd() {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/import-srd`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not import the SRD PDF."),
+      );
+      return;
+    }
+
+    setStatus("SRD 5.1 PDF imported and indexed.");
+    await loadKnowledgeDocuments();
+  }
+
+  async function searchKnowledge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const params = new URLSearchParams({
+      q: String(data.get("q") ?? ""),
+      mode: String(data.get("mode") ?? "RulesOnly"),
+      sourceType: String(data.get("sourceType") ?? ""),
+    });
+    if (!params.get("sourceType")) {
+      params.delete("sourceType");
+    }
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/search?${params}`),
+      {
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (response.ok) {
+      setKnowledgeResults(await response.json());
+    } else {
+      setStatus(await formatApiError(response, "Knowledge search failed."));
+    }
+  }
+
+  async function askKnowledge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/chat`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({
+          question: data.get("question"),
+          mode: data.get("mode"),
+        }),
+      },
+    );
+
+    if (response.ok) {
+      setKnowledgeChat(await response.json());
+    } else {
+      setStatus(await formatApiError(response, "DM reference chat failed."));
+    }
+  }
+
+  async function reindexKnowledge(documentId?: string) {
+    const path = documentId
+      ? `/api/campaigns/${route.slug}/knowledge/documents/${documentId}/reindex`
+      : `/api/campaigns/${route.slug}/knowledge/rebuild-index`;
+    const response = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${dmToken}` },
+    });
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not rebuild the index."));
+      return;
+    }
+
+    setStatus("Knowledge index rebuilt.");
+    await loadKnowledgeDocuments();
+  }
+
+  async function deleteKnowledge(documentId: string) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/documents/${documentId}`),
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not delete that source."),
+      );
+      return;
+    }
+
+    await loadKnowledgeDocuments();
+  }
+
   async function updateCharacterSheet(
     playerId: string,
     payload: CharacterSheetPayload,
@@ -348,11 +604,47 @@ function App() {
     return <CampaignCreator onSubmit={createCampaign} status={status} />;
   }
 
+  if (route.isDm && campaign) {
+    return (
+      <main
+        className={`min-h-screen ${theme.bg} p-2 text-neutral-950 sm:p-3 lg:p-4`}
+      >
+        <section className="mx-auto grid max-w-[1920px] gap-3">
+          <DmCommandBar
+            campaign={campaign}
+            theme={theme}
+            muted={muted}
+            status={status}
+            currentBgm={currentBgm}
+            onToggleMuted={() => setMuted((value) => !value)}
+            onUploadBgm={uploadBgm}
+          />
+          <DmWorkspace
+            campaign={campaign}
+            theme={theme}
+            creatures={creatures}
+            onCreateEncounter={createEncounter}
+            onSearchCreatures={searchCreatures}
+            knowledgeDocuments={knowledgeDocuments}
+            knowledgeResults={knowledgeResults}
+            knowledgeChat={knowledgeChat}
+            onImportKnowledge={importKnowledge}
+            onImportBundledSrd={importBundledSrd}
+            onSearchKnowledge={searchKnowledge}
+            onAskKnowledge={askKnowledge}
+            onReindexKnowledge={reindexKnowledge}
+            onDeleteKnowledge={deleteKnowledge}
+          />
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main
-      className={`min-h-screen ${theme.bg} p-4 text-neutral-950 sm:p-6 lg:p-8`}
+      className={`min-h-screen ${theme.bg} p-2 text-neutral-950 sm:p-3 lg:p-4`}
     >
-      <section className="mx-auto grid max-w-7xl gap-4 lg:grid-cols-[280px_1fr]">
+      <section className="mx-auto grid max-w-[1920px] gap-3 lg:grid-cols-[260px_1fr]">
         <aside className={`pixel-panel ${theme.panel} p-4`}>
           <div className="mb-5 flex items-center gap-3">
             <Shield className="h-8 w-8" />
@@ -402,7 +694,15 @@ function App() {
               creatures={creatures}
               onCreateEncounter={createEncounter}
               onSearchCreatures={searchCreatures}
-              onUploadBgm={uploadBgm}
+              knowledgeDocuments={knowledgeDocuments}
+              knowledgeResults={knowledgeResults}
+              knowledgeChat={knowledgeChat}
+              onImportKnowledge={importKnowledge}
+              onImportBundledSrd={importBundledSrd}
+              onSearchKnowledge={searchKnowledge}
+              onAskKnowledge={askKnowledge}
+              onReindexKnowledge={reindexKnowledge}
+              onDeleteKnowledge={deleteKnowledge}
             />
           ) : (
             <PlayerWorkspace
@@ -564,59 +864,148 @@ function PlayerWorkspace({
   );
 }
 
+function DmCommandBar({
+  campaign,
+  theme,
+  muted,
+  status,
+  currentBgm,
+  onToggleMuted,
+  onUploadBgm,
+}: {
+  campaign: Campaign;
+  theme: Record<string, string>;
+  muted: boolean;
+  status: string;
+  currentBgm?: Asset;
+  onToggleMuted: () => void;
+  onUploadBgm: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <header
+      className={`pixel-panel ${theme.panel} grid gap-3 p-3 text-sm lg:grid-cols-[minmax(220px,1fr)_minmax(320px,1.3fr)_minmax(320px,1.1fr)] lg:items-center`}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <Shield className="h-7 w-7 shrink-0" />
+        <div className="min-w-0">
+          <h1
+            className={`truncate font-pixel text-xs leading-5 ${theme.primary}`}
+          >
+            {campaign.name}
+          </h1>
+          <p className="text-[11px] font-black uppercase tracking-wide">
+            Campaign Manager
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-center">
+        <button
+          type="button"
+          className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
+          onClick={onToggleMuted}
+        >
+          {muted ? (
+            <VolumeX className="h-4 w-4" />
+          ) : (
+            <Volume2 className="h-4 w-4" />
+          )}
+          {muted ? "Muted" : "BGM"}
+        </button>
+        {currentBgm ? (
+          <BgmPlayer
+            asset={currentBgm}
+            muted={muted}
+            startedAt={campaign.bgmStartedAt}
+          />
+        ) : (
+          <p className="border-2 border-black bg-white/70 p-2 text-xs font-bold text-black">
+            No BGM selected
+          </p>
+        )}
+      </div>
+
+      <form
+        onSubmit={onUploadBgm}
+        className="grid gap-2 sm:grid-cols-[1fr_auto]"
+      >
+        <input type="hidden" name="kind" value="BGM" />
+        <input
+          name="file"
+          type="file"
+          accept="audio/*"
+          className="min-w-0 border-2 border-black bg-white p-2 text-xs text-black"
+          required
+        />
+        <button
+          className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
+        >
+          <Upload className="h-4 w-4" />
+          Upload
+        </button>
+      </form>
+
+      {status ? (
+        <p className="border-2 border-black bg-white/80 p-2 text-xs font-bold text-black lg:col-span-3">
+          {status}
+        </p>
+      ) : null}
+    </header>
+  );
+}
+
 function DmWorkspace({
   campaign,
   theme,
   creatures,
   onCreateEncounter,
   onSearchCreatures,
-  onUploadBgm,
+  knowledgeDocuments,
+  knowledgeResults,
+  knowledgeChat,
+  onImportKnowledge,
+  onImportBundledSrd,
+  onSearchKnowledge,
+  onAskKnowledge,
+  onReindexKnowledge,
+  onDeleteKnowledge,
 }: {
   campaign: Campaign;
   theme: Record<string, string>;
   creatures: Creature[];
   onCreateEncounter: (event: FormEvent<HTMLFormElement>) => void;
   onSearchCreatures: (event: FormEvent<HTMLFormElement>) => void;
-  onUploadBgm: (event: FormEvent<HTMLFormElement>) => void;
+  knowledgeDocuments: KnowledgeDocument[];
+  knowledgeResults: KnowledgeSource[];
+  knowledgeChat: KnowledgeChatResponse | null;
+  onImportKnowledge: (event: FormEvent<HTMLFormElement>) => void;
+  onImportBundledSrd: () => void;
+  onSearchKnowledge: (event: FormEvent<HTMLFormElement>) => void;
+  onAskKnowledge: (event: FormEvent<HTMLFormElement>) => void;
+  onReindexKnowledge: (documentId?: string) => void;
+  onDeleteKnowledge: (documentId: string) => void;
 }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-      <section className={`pixel-panel ${theme.panel} p-4`}>
-        <h2 className="mb-4 flex items-center gap-2 font-pixel text-sm leading-6">
-          <Map className="h-5 w-5" />
-          Battle Map
-        </h2>
-        <MapBoard campaign={campaign} />
-      </section>
-      <section className={`pixel-panel ${theme.panel} p-4`}>
-        <h2 className="mb-4 flex items-center gap-2 font-pixel text-sm leading-6">
+    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
+      <KnowledgePanel
+        theme={theme}
+        documents={knowledgeDocuments}
+        results={knowledgeResults}
+        chat={knowledgeChat}
+        onImport={onImportKnowledge}
+        onImportBundledSrd={onImportBundledSrd}
+        onSearch={onSearchKnowledge}
+        onAsk={onAskKnowledge}
+        onReindex={onReindexKnowledge}
+        onDelete={onDeleteKnowledge}
+      />
+
+      <section className={`pixel-panel ${theme.panel} p-3`}>
+        <h2 className="mb-3 flex items-center gap-2 font-pixel text-xs leading-5">
           <Swords className="h-5 w-5" />
           Encounters
         </h2>
-        <form
-          onSubmit={onUploadBgm}
-          className="mb-5 border-2 border-black bg-white/80 p-3 text-black"
-        >
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-black">
-            <Music className="h-4 w-4" />
-            BGM
-          </h3>
-          <input type="hidden" name="kind" value="BGM" />
-          <input
-            name="file"
-            type="file"
-            accept="audio/*"
-            className="mb-3 w-full border-2 border-black bg-white p-2 text-sm"
-            required
-          />
-          <button
-            className={`pixel-button flex w-full items-center justify-center gap-2 px-3 py-2 font-bold ${theme.button}`}
-          >
-            <Upload className="h-4 w-4" />
-            Upload
-          </button>
-        </form>
-        <form onSubmit={onCreateEncounter} className="mb-5">
+        <form onSubmit={onCreateEncounter} className="mb-4">
           <Field label="Encounter name" name="name" />
           <button
             className={`pixel-button w-full px-3 py-2 font-bold ${theme.button}`}
@@ -624,7 +1013,7 @@ function DmWorkspace({
             Prepare
           </button>
         </form>
-        <form onSubmit={onSearchCreatures} className="mb-4 grid gap-2">
+        <form onSubmit={onSearchCreatures} className="mb-3 grid gap-2">
           <Field label="Creature" name="q" />
           <Field label="Environment" name="environment" />
           <button
@@ -661,7 +1050,287 @@ function DmWorkspace({
           ))}
         </div>
       </section>
+
+      <section className={`pixel-panel ${theme.panel} p-3 xl:col-span-2`}>
+        <h2 className="mb-3 flex items-center gap-2 font-pixel text-xs leading-5">
+          <Map className="h-5 w-5" />
+          Battle Map
+        </h2>
+        <MapBoard campaign={campaign} />
+      </section>
     </div>
+  );
+}
+
+function KnowledgePanel({
+  theme,
+  documents,
+  results,
+  chat,
+  onImport,
+  onImportBundledSrd,
+  onSearch,
+  onAsk,
+  onReindex,
+  onDelete,
+}: {
+  theme: Record<string, string>;
+  documents: KnowledgeDocument[];
+  results: KnowledgeSource[];
+  chat: KnowledgeChatResponse | null;
+  onImport: (event: FormEvent<HTMLFormElement>) => void;
+  onImportBundledSrd: () => void;
+  onSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onAsk: (event: FormEvent<HTMLFormElement>) => void;
+  onReindex: (documentId?: string) => void;
+  onDelete: (documentId: string) => void;
+}) {
+  return (
+    <section className={`pixel-panel ${theme.panel} p-3`}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 font-pixel text-xs leading-5">
+          <MessageSquare className="h-4 w-4" />
+          DM Reference
+        </h2>
+        <button
+          type="button"
+          className={`pixel-button grid h-9 w-9 place-items-center ${theme.button}`}
+          onClick={() => onReindex()}
+          title="Rebuild index"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      </div>
+
+      <form
+        onSubmit={onAsk}
+        className="mb-3 grid gap-2 lg:grid-cols-[1fr_150px_auto]"
+      >
+        <Field label="Ask the sources" name="question" compact />
+        <SelectField
+          label="Mode"
+          name="mode"
+          options={retrievalModes}
+          defaultValue="RulesOnly"
+          compact
+        />
+        <button
+          className={`pixel-button mt-0 flex items-center justify-center gap-2 px-4 py-2 text-sm font-black lg:mt-6 ${theme.button}`}
+        >
+          <MessageSquare className="h-4 w-4" />
+          Ask
+        </button>
+      </form>
+
+      {chat ? (
+        <div className="mb-3 max-h-[52vh] overflow-auto border-2 border-black bg-[#f8f4e8] p-3 text-black">
+          {chat.llmStatus ? (
+            <p className="mb-2 text-xs font-black uppercase">
+              LLM: {chat.llmStatus}
+            </p>
+          ) : null}
+          <pre className="whitespace-pre-wrap text-sm font-semibold leading-6">
+            {chat.answer}
+          </pre>
+          {chat.retrievedChunks.length ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm font-black">
+                Retrieved chunks
+              </summary>
+              <div className="mt-2 grid gap-2">
+                {chat.retrievedChunks.map((chunk) => (
+                  <SourceResult key={chunk.id} result={chunk} showFullText />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </div>
+      ) : (
+        <div className="mb-3 border-2 border-black bg-[#f8f4e8] p-3 text-sm font-bold text-black">
+          Ask rules questions, prep questions, or campaign-consistency
+          questions.
+        </div>
+      )}
+
+      <details className="mb-3 border-2 border-black bg-white/85 p-3 text-black">
+        <summary className="cursor-pointer font-black">
+          Search imported sources
+        </summary>
+        <form onSubmit={onSearch} className="mt-3 grid gap-2">
+          <Field label="Search" name="q" compact />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <SelectField
+              label="Mode"
+              name="mode"
+              options={retrievalModes}
+              defaultValue="RulesOnly"
+              compact
+            />
+            <SelectField
+              label="Source filter"
+              name="sourceType"
+              options={[
+                "SRD",
+                "",
+                ...sourceTypes.filter((type) => type !== "SRD"),
+              ]}
+              defaultValue="SRD"
+              optionLabel={(value) => value || "Any"}
+              compact
+            />
+          </div>
+          <button
+            className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-sm font-black ${theme.button}`}
+          >
+            <Search className="h-4 w-4" />
+            Search
+          </button>
+        </form>
+
+        <div className="mt-3 grid max-h-64 gap-2 overflow-auto pr-1">
+          {results.map((result) => (
+            <SourceResult key={result.id} result={result} />
+          ))}
+        </div>
+      </details>
+
+      <details className="border-2 border-black bg-white/85 p-3 text-black">
+        <summary className="cursor-pointer font-black">
+          <FileText className="h-4 w-4" />
+          Sources ({documents.length})
+        </summary>
+
+        <form onSubmit={onImport} className="mt-3 grid gap-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Source name" name="sourceName" compact />
+            <SelectField
+              label="Source type"
+              name="sourceType"
+              options={sourceTypes}
+              compact
+            />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field
+              label="License"
+              name="licenseText"
+              required={false}
+              compact
+            />
+            <Field
+              label="Attribution"
+              name="attributionText"
+              required={false}
+              compact
+            />
+          </div>
+          <input
+            name="file"
+            type="file"
+            accept=".txt,.md,.markdown,.json,.pdf,text/plain,application/json"
+            className="w-full border-2 border-black bg-white p-2 text-sm"
+            required
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-sm font-black ${theme.button}`}
+            >
+              <Upload className="h-4 w-4" />
+              Import
+            </button>
+            <button
+              type="button"
+              className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-sm font-black ${theme.button}`}
+              onClick={onImportBundledSrd}
+            >
+              <BookOpen className="h-4 w-4" />
+              Import SRD
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-3 grid max-h-64 gap-2 overflow-auto pr-1">
+          {documents.map((document) => (
+            <div
+              key={document.id}
+              className="border-2 border-black bg-white p-2 text-sm"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-black">{document.sourceName}</p>
+                  <p className="text-xs uppercase">
+                    {document.sourceType} - {document.status} -{" "}
+                    {document.chunkCount} chunks
+                  </p>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className="grid h-8 w-8 place-items-center border-2 border-black bg-[#bff3df]"
+                    onClick={() => onReindex(document.id)}
+                    title="Reindex source"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    className="grid h-8 w-8 place-items-center border-2 border-black bg-[#ffd1dc]"
+                    onClick={() => onDelete(document.id)}
+                    title="Delete source"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <p className="mt-1 break-words text-xs">
+                {document.originalFileName}
+              </p>
+              {document.attributionText ? (
+                <p className="mt-2 text-xs">{document.attributionText}</p>
+              ) : null}
+              {document.errorMessage ? (
+                <p className="mt-2 text-xs font-bold text-[#8a1f1f]">
+                  {document.errorMessage}
+                </p>
+              ) : null}
+            </div>
+          ))}
+          {!documents.length ? (
+            <p className="border-2 border-black bg-white p-3 text-sm font-bold">
+              No sources imported yet.
+            </p>
+          ) : null}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function SourceResult({
+  result,
+  showFullText = false,
+}: {
+  result: KnowledgeSource & { text?: string };
+  showFullText?: boolean;
+}) {
+  const section = result.sectionPath.join(" > ") || result.title;
+  return (
+    <details
+      className="border-2 border-black bg-white p-2 text-sm"
+      open={showFullText}
+    >
+      <summary className="cursor-pointer font-black">
+        {result.sourceName} - {section}
+      </summary>
+      <p className="mt-1 text-xs uppercase">
+        {result.sourceType}
+        {result.pageNumber ? ` - page ${result.pageNumber}` : ""} - score{" "}
+        {result.relevanceScore}
+      </p>
+      <p className="mt-2 whitespace-pre-wrap text-sm">
+        {showFullText && result.text ? result.text : result.textPreview}
+      </p>
+    </details>
   );
 }
 
@@ -689,8 +1358,8 @@ function BgmPlayer({
   }, [asset.id, startedAt]);
 
   return (
-    <div className="mb-4 border-2 border-black bg-white/70 p-2 text-black">
-      <p className="mb-2 truncate text-xs font-black">{asset.name}</p>
+    <div className="border-2 border-black bg-white/70 p-2 text-black">
+      <p className="mb-1 truncate text-[11px] font-black">{asset.name}</p>
       <audio
         ref={audioRef}
         src={apiUrl(asset.url)}
@@ -721,11 +1390,11 @@ function BgmPlayer({
 
 function MapBoard({ campaign }: { campaign: Campaign }) {
   return (
-    <div className="relative aspect-[16/10] min-h-[320px] overflow-hidden border-4 border-black bg-[linear-gradient(45deg,#7aa66a_25%,#517a55_25%,#517a55_50%,#7aa66a_50%,#7aa66a_75%,#517a55_75%)] bg-[length:32px_32px]">
+    <div className="relative h-[38vh] min-h-[260px] max-h-[520px] w-full max-w-full overflow-hidden border-4 border-black bg-[linear-gradient(45deg,#7aa66a_25%,#517a55_25%,#517a55_50%,#7aa66a_50%,#7aa66a_75%,#517a55_75%)] bg-[length:32px_32px]">
       {campaign.mapPins.map((pin) => (
         <div
           key={pin.id}
-          className="absolute grid h-12 w-12 place-items-center border-2 border-black bg-white text-xs font-bold shadow-pixel"
+          className="absolute grid h-12 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center border-2 border-black bg-white text-xs font-bold shadow-pixel"
           style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
           title={pin.label}
         >
@@ -910,22 +1579,59 @@ function Field({
   name,
   type = "text",
   minLength,
+  required = true,
+  compact = false,
 }: {
   label: string;
   name: string;
   type?: string;
   minLength?: number;
+  required?: boolean;
+  compact?: boolean;
 }) {
   return (
-    <label className="mb-4 block text-sm font-bold">
+    <label className={`${compact ? "mb-0" : "mb-4"} block text-sm font-bold`}>
       {label}
       <input
         name={name}
         type={type}
         minLength={minLength}
-        className="mt-2 w-full border-2 border-black bg-white p-3 text-black"
-        required
+        className={`${compact ? "mt-1 p-2 text-sm" : "mt-2 p-3"} w-full border-2 border-black bg-white text-black`}
+        required={required}
       />
+    </label>
+  );
+}
+
+function SelectField<T extends string>({
+  label,
+  name,
+  options,
+  defaultValue,
+  compact = false,
+  optionLabel = (value) => value,
+}: {
+  label: string;
+  name: string;
+  options: T[];
+  defaultValue?: T;
+  compact?: boolean;
+  optionLabel?: (value: T) => string;
+}) {
+  return (
+    <label className={`${compact ? "mb-0" : "mb-4"} block text-sm font-bold`}>
+      {label}
+      <select
+        name={name}
+        defaultValue={defaultValue}
+        className={`${compact ? "mt-1 p-2 text-sm" : "mt-2 p-3"} w-full border-2 border-black bg-white text-black`}
+      >
+        {options.map((option) => (
+          <option key={option || "any"} value={option}>
+            {optionLabel(option)}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

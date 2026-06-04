@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dnd_campaign_manager
+      POSTGRES_USER: dnd_campaign_manager
+      POSTGRES_PASSWORD: dnd_campaign_manager
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U dnd_campaign_manager -d dnd_campaign_manager",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+    environment:
+      DATABASE_URL: postgresql://dnd_campaign_manager:dnd_campaign_manager@db:5432/dnd_campaign_manager?schema=public
+      JWT_SECRET: local-docker-development-secret-change-me
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.1:8b
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads-data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  postgres-data:
+  uploads-data:
+  ollama-data:

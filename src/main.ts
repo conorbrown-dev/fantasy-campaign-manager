@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { mkdirSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import * as express from "express";
 import { AppModule } from "./app.module";
@@ -14,6 +14,29 @@ async function bootstrap() {
   const uploadsPath = join(process.cwd(), "uploads");
   mkdirSync(uploadsPath, { recursive: true });
   app.use("/uploads", express.static(uploadsPath));
+
+  const webDistPath = join(process.cwd(), "web-dist");
+  if (existsSync(webDistPath)) {
+    app.use(express.static(webDistPath));
+    app.use(
+      (
+        request: express.Request,
+        response: express.Response,
+        next: express.NextFunction,
+      ) => {
+        if (
+          request.method === "GET" &&
+          !request.path.startsWith("/api") &&
+          !request.path.startsWith("/socket.io") &&
+          !request.path.startsWith("/uploads")
+        ) {
+          response.sendFile(join(webDistPath, "index.html"));
+          return;
+        }
+        next();
+      },
+    );
+  }
 
   app.enableCors({
     origin: true,

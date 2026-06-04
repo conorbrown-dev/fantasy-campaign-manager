@@ -27,62 +27,88 @@ enum EncounterStatus {
   RESOLVED
 }
 
+enum KnowledgeSourceType {
+  SRD
+  Open5e
+  FiveEBits
+  Homebrew
+  SessionNotes
+  CustomMonster
+  CustomSpell
+  HouseRule
+}
+
+enum KnowledgeDocumentStatus {
+  IMPORTED
+  CHUNKED
+  INDEXED
+  FAILED
+}
+
+enum KnowledgeChunkIndexStatus {
+  PENDING
+  INDEXED
+  FAILED
+}
+
 model Campaign {
-  id               String      @id @default(cuid())
-  slug             String      @unique
-  name             String
-  dmPasswordHash   String
-  theme            CampaignTheme @default(PURPLE_LILAC)
-  currentBgmAssetId String?
-  bgmStartedAt     DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  players          Player[]
-  quests           Quest[]
-  encounters       Encounter[]
-  assets           Asset[]
-  mapPins          MapPin[]
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  name               String
+  dmPasswordHash     String
+  theme              CampaignTheme       @default(PURPLE_LILAC)
+  currentBgmAssetId  String?
+  bgmStartedAt       DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  players            Player[]
+  quests             Quest[]
+  encounters         Encounter[]
+  assets             Asset[]
+  mapPins            MapPin[]
+  knowledgeDocuments KnowledgeDocument[]
+  knowledgeChunks    KnowledgeChunk[]
 }
 
 model Player {
-  id          String   @id @default(cuid())
-  campaignId  String
-  name        String
-  iconUrl     String?
-  stats       Json
-  equipment   Json
-  money       Json
-  rolls       Json
-  abilities   Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  campaignId String
+  name       String
+  iconUrl    String?
+  stats      Json
+  equipment  Json
+  money      Json
+  rolls      Json
+  abilities  Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 }
 
 model Quest {
-  id          String      @id @default(cuid())
-  campaignId  String
-  parentId    String?
-  title       String
-  summary     String
-  status      QuestStatus @default(PLANNED)
-  loot        Loot[]
-  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  parent      Quest?      @relation("SubQuests", fields: [parentId], references: [id])
-  subQuests   Quest[]     @relation("SubQuests")
+  id         String      @id @default(cuid())
+  campaignId String
+  parentId   String?
+  title      String
+  summary    String
+  status     QuestStatus @default(PLANNED)
+  loot       Loot[]
+  campaign   Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  parent     Quest?      @relation("SubQuests", fields: [parentId], references: [id])
+  subQuests  Quest[]     @relation("SubQuests")
 }
 
 model Loot {
-  id        String @id @default(cuid())
-  questId   String
-  name      String
-  quantity  Int    @default(1)
-  notes     String?
-  quest     Quest  @relation(fields: [questId], references: [id], onDelete: Cascade)
+  id       String  @id @default(cuid())
+  questId  String
+  name     String
+  quantity Int     @default(1)
+  notes    String?
+  quest    Quest   @relation(fields: [questId], references: [id], onDelete: Cascade)
 }
 
 model Creature {
-  id                   String      @id @default(cuid())
+  id                   String              @id @default(cuid())
   name                 String
   imageUrl             String?
   preferredEnvironment String
@@ -95,14 +121,14 @@ model Creature {
 }
 
 model Encounter {
-  id          String      @id @default(cuid())
-  campaignId  String
-  name        String
-  status      EncounterStatus @default(PLANNED)
-  mapAssetId  String?
-  ruleNotes   Json
-  creatures   EncounterCreature[]
-  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id         String              @id @default(cuid())
+  campaignId String
+  name       String
+  status     EncounterStatus     @default(PLANNED)
+  mapAssetId String?
+  ruleNotes  Json
+  creatures  EncounterCreature[]
+  campaign   Campaign            @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 }
 
 model EncounterCreature {
@@ -117,23 +143,69 @@ model EncounterCreature {
 }
 
 model Asset {
-  id          String   @id @default(cuid())
-  campaignId  String
-  kind        String
-  name        String
-  url         String
-  mimeType    String
-  createdAt   DateTime @default(now())
-  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  campaignId String
+  kind       String
+  name       String
+  url        String
+  mimeType   String
+  createdAt  DateTime @default(now())
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 }
 
 model MapPin {
-  id          String   @id @default(cuid())
-  campaignId  String
-  label       String
-  iconUrl     String?
-  x           Float
-  y           Float
-  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  campaignId String
+  label      String
+  iconUrl    String?
+  x          Float
+  y          Float
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 }
 
+model KnowledgeDocument {
+  id               String                  @id @default(cuid())
+  campaignId       String
+  sourceName       String
+  sourceType       KnowledgeSourceType
+  licenseText      String?
+  attributionText  String?
+  originalFileName String
+  mimeType         String?
+  importedAt       DateTime                @default(now())
+  contentHash      String
+  status           KnowledgeDocumentStatus @default(IMPORTED)
+  errorMessage     String?
+  indexedAt        DateTime?
+  campaign         Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  chunks           KnowledgeChunk[]
+
+  @@unique([campaignId, contentHash])
+  @@index([campaignId, sourceType])
+}
+
+model KnowledgeChunk {
+  id           String                    @id @default(cuid())
+  campaignId   String
+  documentId   String
+  sourceName   String
+  sourceType   KnowledgeSourceType
+  title        String
+  sectionPath  String[]
+  pageNumber   Int?
+  chunkIndex   Int
+  text         String
+  textPreview  String
+  hash         String
+  embedding    Json?
+  indexStatus  KnowledgeChunkIndexStatus @default(PENDING)
+  errorMessage String?
+  indexedAt    DateTime?
+  createdAt    DateTime                  @default(now())
+  campaign     Campaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  document     KnowledgeDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, hash])
+  @@index([campaignId, sourceType])
+  @@index([documentId, chunkIndex])
+}

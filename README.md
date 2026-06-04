@@ -38,6 +38,39 @@ A NestJS, Postgres, Prisma, React, and Tailwind CSS starter for running D&D 5e c
 
 The Vite frontend runs at `http://localhost:5173` and proxies API requests to the NestJS server at `http://localhost:3000`.
 
+## Docker Setup For WSL
+
+1. Enable Docker Desktop WSL integration for this distro, or install Docker Engine inside WSL.
+
+2. Build and start the app with Postgres:
+
+   ```bash
+   docker compose up --build
+   ```
+
+3. Pull the local chat model once:
+
+   ```bash
+   docker compose exec ollama ollama pull llama3.1:8b
+   ```
+
+4. Open `http://localhost:3000`.
+
+The app container runs Prisma migrations and seeds the starter creatures on startup. Uploaded assets are stored in the `uploads-data` Docker volume, Postgres data is stored in the `postgres-data` Docker volume, and Ollama models are stored in the `ollama-data` Docker volume.
+
+The DM Reference panel automatically imports `SRD_CC_v5.1.pdf` from the project root as the default rules source the first time a DM opens a campaign. You can also run the same import manually with the `Import SRD PDF` button. PDF extraction uses `pdftotext`, which is installed in the app container.
+
+Useful commands:
+
+```bash
+docker compose up --build
+docker compose exec ollama ollama pull llama3.1:8b
+docker compose down
+docker compose logs -f app
+docker compose logs -f ollama
+docker compose exec app npx prisma studio
+```
+
 ## Route Shape
 
 - Create a campaign from `/`
@@ -50,4 +83,3 @@ The Vite frontend runs at `http://localhost:5173` and proxies API requests to th
 - Add map and creature image upload flows using the existing multipart asset endpoint
 - Add richer character sheet sections for rolls, spell slots, proficiencies, and notes
 - Add AI asset-generation adapters behind the existing `Asset` model
-

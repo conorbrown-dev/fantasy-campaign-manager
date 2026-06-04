@@ -2,6 +2,9 @@
   "name": "d-n-d-campaign-manager",
   "version": "0.1.0",
   "private": true,
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "scripts": {
     "build": "nest build && npm run build:web",
     "build:web": "vite build",
