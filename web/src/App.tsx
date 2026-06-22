@@ -313,6 +313,31 @@ function App() {
     };
   }, []);
 
+  React.useEffect(() => {
+    function handleCampaignMapSync(payload: { asset: Asset; setAt: string }) {
+      setCampaign((current) => {
+        if (!current) return current;
+        const assets = current.assets?.some(
+          (asset) => asset.id === payload.asset.id,
+        )
+          ? current.assets
+          : [...(current.assets ?? []), payload.asset];
+
+        return {
+          ...current,
+          assets,
+          currentCampaignMapAssetId: payload.asset.id,
+          campaignMapSetAt: payload.setAt,
+        };
+      });
+    }
+
+    socket.on("campaign-map:sync", handleCampaignMapSync);
+    return () => {
+      socket.off("campaign-map:sync", handleCampaignMapSync);
+    };
+  }, []);
+
   async function createCampaign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus("");
@@ -375,7 +400,7 @@ function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: data.get("name") }),
     });
-    event.currentTarget.reset();
+    // event.currentTarget.reset();
     await loadCampaign();
   }
 
@@ -441,6 +466,51 @@ function App() {
 
     const startedAt = new Date().toISOString();
     socket.emit("bgm:sync", {
+      slug: route.slug,
+      asset,
+      assetUrl: apiUrl(asset.url),
+      startedAt,
+    });
+    event.currentTarget.reset();
+    await loadCampaign();
+  }
+
+  async function uploadCampaignMap(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const upload = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/assets/upload`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+        body: data,
+      },
+    );
+
+    if (!upload.ok) {
+      setStatus(
+        await formatApiError(upload, "Could not upload that campaign map."),
+      );
+      return;
+    }
+
+    const asset: Asset = await upload.json();
+    const campaignMap = await fetch(apiUrl(`/api/campaigns/${route.slug}/campaign-map`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${dmToken}`,
+      },
+      body: JSON.stringify({ assetId: asset.id }),
+    });
+
+    if (!campaignMap.ok) {
+      setStatus(await formatApiError(campaignMap, "Could not set that campaign map."));
+      return;
+    }
+
+    const startedAt = new Date().toISOString();
+    socket.emit("campaign-map:sync", {
       slug: route.slug,
       asset,
       assetUrl: apiUrl(asset.url),
@@ -618,6 +688,7 @@ function App() {
             currentBgm={currentBgm}
             onToggleMuted={() => setMuted((value) => !value)}
             onUploadBgm={uploadBgm}
+            onUploadCampaignMap={uploadCampaignMap}
           />
           <DmWorkspace
             campaign={campaign}
@@ -872,6 +943,7 @@ function DmCommandBar({
   currentBgm,
   onToggleMuted,
   onUploadBgm,
+  onUploadCampaignMap
 }: {
   campaign: Campaign;
   theme: Record<string, string>;
@@ -880,6 +952,7 @@ function DmCommandBar({
   currentBgm?: Asset;
   onToggleMuted: () => void;
   onUploadBgm: (event: FormEvent<HTMLFormElement>) => void;
+  onUploadCampaignMap: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <header
@@ -937,6 +1010,25 @@ function DmCommandBar({
           className="min-w-0 border-2 border-black bg-white p-2 text-xs text-black"
           required
         />
+        <button
+          className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
+        >
+          <Upload className="h-4 w-4" />
+          Upload
+        </button>
+      </form>
+
+      <form
+        onSubmit={onUploadCampaignMap}
+        className="grid gap-2 sm:grid-cols-[1fr_auto]"
+      >
+        <input type="hidden" name="kind" value="CampaignMap" />
+        <input
+          name="file"
+          type="file"
+          accept="image/*"
+          className="min-w-0 border-2 border-black bg-white p-2 text-xs text-black"
+          required />
         <button
           className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
         >

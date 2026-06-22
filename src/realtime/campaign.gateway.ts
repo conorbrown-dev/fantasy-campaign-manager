@@ -17,6 +17,12 @@ type BgmSyncPayload = {
   startedAt: string;
 };
 
+type CampaignMapSyncPayload = {
+  slug: string;
+  assetUrl: string;
+  startedAt: string;
+}
+
 @WebSocketGateway({
   cors: {
     origin: true,
@@ -39,6 +45,11 @@ export class CampaignGateway {
   @SubscribeMessage("bgm:sync")
   syncBgm(@MessageBody() payload: BgmSyncPayload) {
     this.server.to(this.room(payload.slug)).emit("bgm:sync", payload);
+  }
+
+  @SubscribeMessage("campaign-map:sync")
+  syncCampaignMap(@MessageBody() payload: CampaignMapSyncPayload) {
+    this.server.to(this.room(payload.slug)).emit("campaign-map:sync", payload);
   }
 
   private room(slug: string) {
