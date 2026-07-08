@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: dnd_campaign_manager
       POSTGRES_USER: dnd_campaign_manager
       POSTGRES_PASSWORD: dnd_campaign_manager
+    ports:
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -39,11 +41,6 @@ services:
   ollama:
     image: ollama/ollama:latest
     gpus: all
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
-    ports:
-      - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
 

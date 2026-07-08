@@ -3,5 +3,6 @@ import { CampaignGateway } from "./campaign.gateway";
 
 @Module({
   providers: [CampaignGateway],
+  exports: [CampaignGateway],
 })
 export class RealtimeModule {}

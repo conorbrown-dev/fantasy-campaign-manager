@@ -4,9 +4,11 @@ import * as argon2 from 'argon2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { CampaignsService } from '../../src/campaigns/application/campaigns.service';
+import { MonsterManualCatalogService } from '../../src/campaigns/application/monster-manual-catalog.service';
 import { CampaignsController } from '../../src/campaigns/interfaces/campaigns.controller';
 import { DmAuthGuard } from '../../src/campaigns/interfaces/dm-auth.guard';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { CampaignGateway } from '../../src/realtime/campaign.gateway';
 
 type CampaignRecord = {
   id: string;
@@ -16,12 +18,27 @@ type CampaignRecord = {
   dmPasswordHash: string;
   currentBgmAssetId?: string | null;
   bgmStartedAt?: Date | null;
+  currentCampaignAssetId?: string | null;
+  campaignMapSetAt?: Date | null;
+};
+
+type PlayerRecord = {
+  id: string;
+  campaignId: string;
+  name: string;
+  accessCodeHash?: string | null;
+  iconUrl?: string | null;
+  stats: unknown;
+  equipment: unknown;
+  money: unknown;
+  rolls: unknown;
+  abilities: unknown;
 };
 
 describe('Campaigns API e2e', () => {
   let app: INestApplication;
   const campaigns = new Map<string, CampaignRecord>();
-  const players: unknown[] = [];
+  const players: PlayerRecord[] = [];
 
   const prisma = {
     campaign: {
@@ -33,7 +50,9 @@ describe('Campaigns API e2e', () => {
           theme: data.theme,
           dmPasswordHash: data.dmPasswordHash,
           currentBgmAssetId: null,
-          bgmStartedAt: null
+          bgmStartedAt: null,
+          currentCampaignMapAssetId: null,
+          campaignMapSetAt: null
         };
         campaigns.set(campaign.slug, campaign);
         return selectCampaign(campaign, select);
@@ -62,7 +81,9 @@ describe('Campaigns API e2e', () => {
             quests: [],
             encounters: [],
             assets: [],
-            mapPins: []
+            mapPins: [],
+            locations: [],
+            campaignNotes: []
           };
         }
 
@@ -70,9 +91,24 @@ describe('Campaigns API e2e', () => {
       })
     },
     player: {
+      findFirst: vi.fn(async ({ where }) => {
+        return (
+          players.find(
+            (player) =>
+              player.campaignId === where.campaignId &&
+              player.name.toLowerCase() === where.name.equals.toLowerCase(),
+          ) ?? null
+        );
+      }),
       create: vi.fn(async ({ data }) => {
         const player = { id: `player-${players.length + 1}`, ...data };
         players.push(player);
+        return player;
+      }),
+      update: vi.fn(async ({ where, data }) => {
+        const player = players.find((item) => item.id === where.id);
+        if (!player) throw new Error('not found');
+        Object.assign(player, data);
         return player;
       })
     },
@@ -99,6 +135,20 @@ describe('Campaigns API e2e', () => {
       providers: [
         CampaignsService,
         DmAuthGuard,
+        {
+          provide: MonsterManualCatalogService,
+          useValue: {
+            search: vi.fn(),
+            listDocuments: vi.fn(),
+            importManual: vi.fn()
+          }
+        },
+        {
+          provide: CampaignGateway,
+          useValue: {
+            syncEncounter: vi.fn()
+          }
+        },
         {
           provide: PrismaService,
           useValue: prisma
@@ -134,7 +184,7 @@ describe('Campaigns API e2e', () => {
 
     await request(app.getHttpServer())
       .post('/api/campaigns/the-silver-keep/players')
-      .send({ name: 'Mira' })
+      .send({ name: 'Mira', accessCode: '1234' })
       .expect(201);
 
     const playerView = await request(app.getHttpServer()).get('/api/campaigns/the-silver-keep').expect(200);

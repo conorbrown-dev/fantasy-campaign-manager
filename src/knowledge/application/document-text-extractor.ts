@@ -28,7 +28,7 @@ async function extractPdfText(fileName: string, content: Buffer) {
       ["-layout", "-enc", "UTF-8", inputPath, "-"],
       { maxBuffer: 50 * 1024 * 1024 },
     );
-    const text = stdout.trim();
+    const text = normalizeExtractedText(stdout);
 
     if (!text) {
       throw new Error("No extractable text was found in the PDF.");
@@ -50,4 +50,16 @@ async function extractPdfText(fileName: string, content: Buffer) {
 
 function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "-") || "reference.pdf";
+}
+
+function normalizeExtractedText(text: string) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\t?\r[ \t]*\u00a0?/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\u00ad/g, "")
+    .replace(/\t/g, " ")
+    .replace(/[^\S\n\f]+$/gm, "")
+    .trim();
 }

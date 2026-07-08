@@ -1,188 +1,42 @@
 import React, { FormEvent, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { io } from "socket.io-client";
-import {
-  BookOpen,
-  Coins,
-  FileText,
-  Map,
-  MessageSquare,
-  RefreshCw,
-  Save,
-  Search,
-  Shield,
-  Skull,
-  Swords,
-  Trash2,
-  Upload,
-  UserPlus,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
+import { Shield, Volume2, VolumeX } from "lucide-react";
 import { apiUrl, socketOrigin } from "./api";
+import { CampaignCreator, DmLogin, PlayerJoin } from "./components/auth";
+import { DmCommandBar, DmWorkspace } from "./components/dm";
+import { BgmPlayer } from "./components/media";
+import { PlayerWelcome, PlayerWorkspace } from "./components/player";
+import type {
+  Asset,
+  Campaign,
+  CampaignNote,
+  CharacterSheetHistoryEntry,
+  CharacterSheetPayload,
+  Encounter,
+  EncounterCreatureStatKey,
+  EncounterDraftCreature,
+  EncounterStatus,
+  KnowledgeChatResponse,
+  KnowledgeDocument,
+  KnowledgeSource,
+  MonsterCatalogEntry,
+  MonsterManualDocument,
+  Player,
+} from "./domain";
+import {
+  minimumBundledSrdMonsterEntries,
+  pendingIds,
+  splitList,
+  themeClasses,
+} from "./domain";
 import "./main.css";
-
-type ThemeKey = "PURPLE_LILAC" | "MINT_YELLOW" | "PINK_GRAY" | "DM_FORGE";
-
-type Player = {
-  id: string;
-  name: string;
-  iconUrl?: string;
-  stats: Record<string, string | number>;
-  equipment: { items?: string[] };
-  money: Record<string, number>;
-  rolls?: unknown[];
-  abilities: string[];
-};
-
-type Creature = {
-  id: string;
-  name: string;
-  imageUrl?: string;
-  preferredEnvironment: string;
-  hitPoints?: number;
-  armorClass?: number;
-};
-
-type Asset = {
-  id: string;
-  kind: string;
-  name: string;
-  url: string;
-  mimeType: string;
-  createdAt?: string;
-};
-
-type Campaign = {
-  id: string;
-  name: string;
-  slug: string;
-  theme: ThemeKey;
-  currentBgmAssetId?: string | null;
-  bgmStartedAt?: string | null;
-  assets?: Asset[];
-  players: Player[];
-  quests: Array<{ id: string; title: string; summary: string; status: string }>;
-  mapPins: Array<{
-    id: string;
-    label: string;
-    iconUrl?: string;
-    x: number;
-    y: number;
-  }>;
-};
-
-type SourceType =
-  | "SRD"
-  | "Open5e"
-  | "FiveEBits"
-  | "Homebrew"
-  | "SessionNotes"
-  | "CustomMonster"
-  | "CustomSpell"
-  | "HouseRule";
-
-type RetrievalMode =
-  | "All"
-  | "RulesOnly"
-  | "HomebrewOnly"
-  | "RulesAndHomebrew"
-  | "SessionNotesOnly";
-
-type KnowledgeDocument = {
-  id: string;
-  sourceName: string;
-  sourceType: SourceType;
-  originalFileName: string;
-  importedAt: string;
-  status: string;
-  errorMessage?: string;
-  chunkCount: number;
-  attributionText?: string;
-  licenseText?: string;
-};
-
-type KnowledgeSource = {
-  id: string;
-  sourceName: string;
-  sourceType: SourceType;
-  title: string;
-  sectionPath: string[];
-  pageNumber?: number | null;
-  relevanceScore: number;
-  textPreview: string;
-};
-
-type KnowledgeChatResponse = {
-  answer: string;
-  sources: KnowledgeSource[];
-  retrievedChunks: Array<KnowledgeSource & { text: string }>;
-  llmStatus?: string;
-};
-
-const sourceTypes: SourceType[] = [
-  "SRD",
-  "Open5e",
-  "FiveEBits",
-  "Homebrew",
-  "SessionNotes",
-  "CustomMonster",
-  "CustomSpell",
-  "HouseRule",
-];
-
-const retrievalModes: RetrievalMode[] = [
-  "All",
-  "RulesOnly",
-  "HomebrewOnly",
-  "RulesAndHomebrew",
-  "SessionNotesOnly",
-];
-
-const themeClasses: Record<
-  ThemeKey,
-  {
-    bg: string;
-    panel: string;
-    primary: string;
-    secondary: string;
-    button: string;
-  }
-> = {
-  PURPLE_LILAC: {
-    bg: "bg-[#2a1748]",
-    panel: "bg-[#f1e7ff]",
-    primary: "text-[#3d2368]",
-    secondary: "bg-[#d9b8ff]",
-    button: "bg-[#7a45b8] text-white",
-  },
-  MINT_YELLOW: {
-    bg: "bg-[#1f4b42]",
-    panel: "bg-[#efffd6]",
-    primary: "text-[#163f38]",
-    secondary: "bg-[#bff3df]",
-    button: "bg-[#348f76] text-white",
-  },
-  PINK_GRAY: {
-    bg: "bg-[#4c3845]",
-    panel: "bg-[#fff0f6]",
-    primary: "text-[#503444]",
-    secondary: "bg-[#d8d8dc]",
-    button: "bg-[#d95f9f] text-white",
-  },
-  DM_FORGE: {
-    bg: "bg-metal",
-    panel: "bg-stone text-white",
-    primary: "text-white",
-    secondary: "bg-[#4d4d4d]",
-    button: "bg-wood text-white",
-  },
-};
 
 const socket = io(socketOrigin(), { autoConnect: false });
 
 function getSlugFromPath() {
   const parts = window.location.pathname.split("/").filter(Boolean);
+
   return {
     slug: parts[0] ?? "",
     isDm: parts[1]?.toLowerCase() === "campaignmanager",
@@ -195,8 +49,10 @@ function App() {
   const [dmToken, setDmToken] = useState(
     localStorage.getItem(`dm:${route.slug}`) ?? "",
   );
+  const [playerId, setPlayerId] = useState(
+    localStorage.getItem(`player:${route.slug}`) ?? "",
+  );
   const [muted, setMuted] = useState(false);
-  const [creatures, setCreatures] = useState<Creature[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<
     KnowledgeDocument[]
   >([]);
@@ -205,16 +61,71 @@ function App() {
   );
   const [knowledgeChat, setKnowledgeChat] =
     useState<KnowledgeChatResponse | null>(null);
+  const [playerReferenceChat, setPlayerReferenceChat] =
+    useState<KnowledgeChatResponse | null>(null);
+  const [monsterCatalogResults, setMonsterCatalogResults] = useState<
+    MonsterCatalogEntry[]
+  >([]);
+  const [encounterDraft, setEncounterDraft] = useState<
+    EncounterDraftCreature[]
+  >([]);
+  const [editingEncounterId, setEditingEncounterId] = useState("");
+  const [editingEncounterName, setEditingEncounterName] = useState("");
+  const [monsterManualDocuments, setMonsterManualDocuments] = useState<
+    MonsterManualDocument[]
+  >([]);
+  const [campaignNoteResults, setCampaignNoteResults] = useState<
+    CampaignNote[]
+  >([]);
+  const [characterSheetHistory, setCharacterSheetHistory] = useState<
+    CharacterSheetHistoryEntry[]
+  >([]);
   const [knowledgeDocumentsLoaded, setKnowledgeDocumentsLoaded] =
     useState(false);
   const [autoSrdImportAttempted, setAutoSrdImportAttempted] = useState(false);
+  const [monsterManualsLoaded, setMonsterManualsLoaded] = useState(false);
+  const [autoSrdMonsterImportAttempted, setAutoSrdMonsterImportAttempted] =
+    useState(false);
+  const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [status, setStatus] = useState("");
 
+  const currentPlayer = campaign?.players.find(
+    (player) => player.id === playerId,
+  );
+  const activeThemeKey =
+    !route.isDm && campaign?.allowPlayerTheme && currentPlayer?.theme
+      ? currentPlayer.theme
+      : (campaign?.theme ?? (route.isDm ? "DM_FORGE" : "PURPLE_LILAC"));
   const theme =
-    themeClasses[campaign?.theme ?? (route.isDm ? "DM_FORGE" : "PURPLE_LILAC")];
+    themeClasses[activeThemeKey] ??
+    themeClasses[route.isDm ? "DM_FORGE" : "PURPLE_LILAC"];
   const currentBgm = campaign?.assets?.find(
     (asset) => asset.id === campaign.currentBgmAssetId,
   );
+  const currentCampaignMap = campaign?.assets?.find(
+    (asset) => asset.id === campaign.currentCampaignMapAssetId,
+  );
+  const currentStoryImage = campaign?.assets?.find(
+    (asset) => asset.id === campaign.currentStoryImageAssetId,
+  );
+  function isPending(actionId: string) {
+    return pendingActionIds.has(actionId);
+  }
+
+  async function trackPending<T>(actionId: string, task: () => Promise<T>) {
+    setPendingActionIds((current) => new Set(current).add(actionId));
+    try {
+      return await task();
+    } finally {
+      setPendingActionIds((current) => {
+        const next = new Set(current);
+        next.delete(actionId);
+        return next;
+      });
+    }
+  }
 
   async function loadCampaign() {
     if (!route.slug) return;
@@ -238,6 +149,16 @@ function App() {
     }
   }
 
+  async function loadCharacterSheetHistory(activePlayerId = playerId) {
+    if (!activePlayerId) return;
+    const response = await fetch(
+      apiUrl(`/api/players/${activePlayerId}/sheet/history`),
+    );
+    if (response.ok) {
+      setCharacterSheetHistory(await response.json());
+    }
+  }
+
   async function loadKnowledgeDocuments() {
     if (!route.slug || !route.isDm || !dmToken) return;
     const response = await fetch(
@@ -252,12 +173,35 @@ function App() {
     }
   }
 
+  async function loadMonsterManuals() {
+    if (!route.slug || !route.isDm || !dmToken) return;
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/monster-manuals`),
+      {
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+    if (response.ok) {
+      setMonsterManualDocuments(await response.json());
+      setMonsterManualsLoaded(true);
+    }
+  }
+
   React.useEffect(() => {
     void loadCampaign();
   }, [dmToken]);
 
   React.useEffect(() => {
+    if (currentPlayer) {
+      void loadCharacterSheetHistory(currentPlayer.id);
+    } else {
+      setCharacterSheetHistory([]);
+    }
+  }, [currentPlayer?.id]);
+
+  React.useEffect(() => {
     void loadKnowledgeDocuments();
+    void loadMonsterManuals();
   }, [dmToken]);
 
   React.useEffect(() => {
@@ -285,6 +229,34 @@ function App() {
     dmToken,
     knowledgeDocuments,
     knowledgeDocumentsLoaded,
+    route.isDm,
+  ]);
+
+  React.useEffect(() => {
+    const hasBundledSrdMonsterCatalog = monsterManualDocuments.some(
+      (document) =>
+        document.originalFileName === "SRD_CC_v5.1.pdf" &&
+        document.entryCount >= minimumBundledSrdMonsterEntries,
+    );
+
+    if (
+      route.isDm &&
+      campaign &&
+      dmToken &&
+      monsterManualsLoaded &&
+      !autoSrdMonsterImportAttempted &&
+      !hasBundledSrdMonsterCatalog
+    ) {
+      setAutoSrdMonsterImportAttempted(true);
+      setStatus("Importing SRD 5.1 as the default monster reference...");
+      void importSrdMonsterCatalog();
+    }
+  }, [
+    autoSrdMonsterImportAttempted,
+    campaign,
+    dmToken,
+    monsterManualDocuments,
+    monsterManualsLoaded,
     route.isDm,
   ]);
 
@@ -332,11 +304,33 @@ function App() {
       });
     }
 
-    socket.on("campaign-map:sync", handleCampaignMapSync);
+    socket.on("campaignMap:sync", handleCampaignMapSync);
     return () => {
-      socket.off("campaign-map:sync", handleCampaignMapSync);
+      socket.off("campaignMap:sync", handleCampaignMapSync);
     };
   }, []);
+
+  React.useEffect(() => {
+    function handleEncounterSync() {
+      void loadCampaign();
+    }
+
+    socket.on("encounter:sync", handleEncounterSync);
+    return () => {
+      socket.off("encounter:sync", handleEncounterSync);
+    };
+  }, [dmToken]);
+
+  React.useEffect(() => {
+    function handleCampaignSync() {
+      void loadCampaign();
+    }
+
+    socket.on("campaign:sync", handleCampaignSync);
+    return () => {
+      socket.off("campaign:sync", handleCampaignSync);
+    };
+  }, [dmToken]);
 
   async function createCampaign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -394,47 +388,476 @@ function App() {
 
   async function createPlayer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     const data = new FormData(event.currentTarget);
-    await fetch(apiUrl(`/api/campaigns/${route.slug}/players`), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: data.get("name") }),
-    });
-    // event.currentTarget.reset();
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/players`),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: data.get("name"),
+          accessCode: data.get("accessCode"),
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not join campaign."));
+      return;
+    }
+
+    const player: Player = await response.json();
+    localStorage.setItem(`player:${route.slug}`, player.id);
+    setPlayerId(player.id);
+    form.reset();
     await loadCampaign();
   }
 
   async function createEncounter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    await fetch(apiUrl(`/api/campaigns/${route.slug}/encounters`), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${dmToken}`,
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const creatures = encounterDraft
+      .filter((entry) => Boolean(entry.creatureId))
+      .map((entry) => ({
+        creatureId: entry.creatureId,
+        armorClass: entry.armorClass,
+        maxHitPoints: entry.maxHitPoints,
+        currentHp: entry.currentHp,
+        speed: entry.speed,
+        initiative: entry.initiative,
+        strength: entry.strength,
+        dexterity: entry.dexterity,
+        constitution: entry.constitution,
+        intelligence: entry.intelligence,
+        wisdom: entry.wisdom,
+        charisma: entry.charisma,
+        keyItems: entry.keyItems,
+      }));
+
+    if (!creatures.length) {
+      setStatus("Add at least one catalog monster to the encounter draft.");
+      return;
+    }
+
+    const editing = Boolean(editingEncounterId);
+    const response = await fetch(
+      apiUrl(
+        editing
+          ? `/api/campaigns/${route.slug}/encounters/${editingEncounterId}`
+          : `/api/campaigns/${route.slug}/encounters`,
+      ),
+      {
+        method: editing ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({
+          name: data.get("name"),
+          creatures,
+          status: data.get("status") === "DRAFT" ? "DRAFT" : "PENDING",
+        }),
       },
-      body: JSON.stringify({ name: data.get("name"), creatureIds: [] }),
-    });
-    event.currentTarget.reset();
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not prepare encounter."));
+      return;
+    }
+
+    setEncounterDraft([]);
+    setEditingEncounterId("");
+    setEditingEncounterName("");
+    form.reset();
     await loadCampaign();
   }
 
-  async function searchCreatures(event: FormEvent<HTMLFormElement>) {
+  function addMonsterToEncounterDraft(result: MonsterCatalogEntry) {
+    if (!result.creatureId) {
+      setStatus("That catalog entry is missing a creature record.");
+      return;
+    }
+
+    setEncounterDraft((current) => [
+      ...current,
+      {
+        ...result,
+        armorClass: result.armorClass ?? 10,
+        maxHitPoints: result.hitPoints ?? 1,
+        currentHp: result.hitPoints ?? 1,
+        speed: 30,
+        initiative: 0,
+        strength: 10,
+        dexterity: 10,
+        constitution: 10,
+        intelligence: 10,
+        wisdom: 10,
+        charisma: 10,
+        keyItems: [],
+      },
+    ]);
+  }
+
+  function editEncounterDraft(encounter: Encounter) {
+    setEditingEncounterId(encounter.id);
+    setEditingEncounterName(encounter.name);
+    setEncounterDraft(
+      encounter.creatures.map((entry) => ({
+        id: entry.id,
+        creatureId: entry.creature.id,
+        name: entry.creature.name,
+        pageNumber: 0,
+        pageImageUrl: entry.creature.imageUrl ?? "",
+        sizeType: entry.creature.preferredEnvironment,
+        armorClass: entry.armorClass ?? entry.creature.armorClass ?? 10,
+        hitPoints: entry.creature.hitPoints,
+        maxHitPoints: entry.maxHitPoints ?? entry.creature.hitPoints ?? 1,
+        currentHp:
+          entry.currentHp ??
+          entry.maxHitPoints ??
+          entry.creature.hitPoints ??
+          1,
+        speed: entry.speed ?? 30,
+        initiative: entry.initiative ?? 0,
+        strength: entry.strength ?? 10,
+        dexterity: entry.dexterity ?? 10,
+        constitution: entry.constitution ?? 10,
+        intelligence: entry.intelligence ?? 10,
+        wisdom: entry.wisdom ?? 10,
+        charisma: entry.charisma ?? 10,
+        challengeRating: null,
+        sourceName: "Saved encounter",
+        textPreview: "",
+        relevanceScore: 0,
+        keyItems: entry.keyItems ?? [],
+      })),
+    );
+  }
+
+  function cancelEncounterDraftEdit() {
+    setEditingEncounterId("");
+    setEditingEncounterName("");
+    setEncounterDraft([]);
+  }
+
+  function removeMonsterFromEncounterDraft(index: number) {
+    setEncounterDraft((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
+  }
+
+  function updateEncounterDraftCreature(
+    index: number,
+    field: EncounterCreatureStatKey,
+    value: number,
+  ) {
+    setEncounterDraft((current) =>
+      current.map((entry, itemIndex) =>
+        itemIndex === index ? { ...entry, [field]: value } : entry,
+      ),
+    );
+  }
+
+  function addEncounterDraftCreatureKeyItem(index: number) {
+    setEncounterDraft((current) =>
+      current.map((entry, itemIndex) =>
+        itemIndex === index
+          ? { ...entry, keyItems: [...entry.keyItems, ""] }
+          : entry,
+      ),
+    );
+  }
+
+  function updateEncounterDraftCreatureKeyItem(
+    index: number,
+    keyItemIndex: number,
+    value: string,
+  ) {
+    setEncounterDraft((current) =>
+      current.map((entry, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...entry,
+              keyItems: entry.keyItems.map((item, currentKeyItemIndex) =>
+                currentKeyItemIndex === keyItemIndex ? value : item,
+              ),
+            }
+          : entry,
+      ),
+    );
+  }
+
+  function removeEncounterDraftCreatureKeyItem(
+    index: number,
+    keyItemIndex: number,
+  ) {
+    setEncounterDraft((current) =>
+      current.map((entry, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...entry,
+              keyItems: entry.keyItems.filter(
+                (_, currentKeyItemIndex) =>
+                  currentKeyItemIndex !== keyItemIndex,
+              ),
+            }
+          : entry,
+      ),
+    );
+  }
+
+  async function startEncounter(encounterId: string) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/encounters/${encounterId}/start`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not start encounter."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function setEncounterStatus(
+    encounterId: string,
+    encounterStatus: EncounterStatus,
+  ) {
+    const response = await fetch(
+      apiUrl(
+        `/api/campaigns/${route.slug}/encounters/${encounterId}/status`,
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ status: encounterStatus }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not update encounter status."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function endDmTurn(encounterId: string) {
+    const response = await fetch(
+      apiUrl(
+        `/api/campaigns/${route.slug}/encounters/${encounterId}/dm/end-turn`,
+      ),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not end DM turn."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function beginEncounterCombat(encounterId: string) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/encounters/${encounterId}/begin`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not begin combat."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function updateEncounterCreature(
+    encounterId: string,
+    encounterCreatureId: string,
+    payload: Partial<Record<EncounterCreatureStatKey, number>>,
+  ) {
+    const response = await fetch(
+      apiUrl(
+        `/api/campaigns/${route.slug}/encounters/${encounterId}/creatures/${encounterCreatureId}`,
+      ),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not update encounter creature."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function resolveEncounter(encounterId: string) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/encounters/${encounterId}/resolve`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not archive encounter."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function submitInitiative(
+    encounterId: string,
+    playerId: string,
+    roll: number,
+  ) {
+    const response = await fetch(
+      apiUrl(
+        `/api/campaigns/${route.slug}/encounters/${encounterId}/players/${playerId}/initiative`,
+      ),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roll }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not submit initiative."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function endPlayerTurn(encounterId: string, playerId: string) {
+    const response = await fetch(
+      apiUrl(
+        `/api/campaigns/${route.slug}/encounters/${encounterId}/players/${playerId}/end-turn`,
+      ),
+      { method: "POST" },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not end player turn."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function importMonsterManual(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setStatus("Importing monster manual catalog...");
+
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/monster-manuals/upload`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+        body: data,
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not import that monster manual."),
+      );
+      return;
+    }
+
+    const document: MonsterManualDocument = await response.json();
+    setStatus(`Imported ${document.entryCount} monster catalog entries.`);
+    form.reset();
+    await loadMonsterManuals();
+  }
+
+  async function importSrdMonsterCatalog() {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/monster-catalog/import-srd`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(
+          response,
+          "Could not import the SRD monster catalog.",
+        ),
+      );
+      return;
+    }
+
+    const document: MonsterManualDocument = await response.json();
+    setStatus(`Imported ${document.entryCount} SRD monster catalog entries.`);
+    await loadMonsterManuals();
+  }
+
+  async function searchMonsterCatalog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const params = new URLSearchParams({
       q: String(data.get("q") ?? ""),
-      environment: String(data.get("environment") ?? ""),
     });
-    const response = await fetch(apiUrl(`/api/creatures?${params}`));
-    setCreatures(await response.json());
+    if (data.get("wholeWords") === "true") {
+      params.set("wholeWords", "true");
+    }
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/monster-catalog?${params}`),
+      {
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (response.ok) {
+      setMonsterCatalogResults(await response.json());
+    } else {
+      setStatus(
+        await formatApiError(response, "Monster catalog search failed."),
+      );
+    }
   }
 
   async function uploadBgm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const upload = await fetch(
-      apiUrl(`/api/campaigns/${route.slug}/assets/upload`),
+      apiUrl(`/api/campaigns/${route.slug}/bgm/tracks/upload`),
       {
         method: "POST",
         headers: { Authorization: `Bearer ${dmToken}` },
@@ -449,7 +872,92 @@ function App() {
       return;
     }
 
-    const asset: Asset = await upload.json();
+    form.reset();
+    await loadCampaign();
+  }
+
+  async function linkBgmTrack(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/bgm/tracks/link`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({
+          name: data.get("name"),
+          url: data.get("url"),
+          playlistName: data.get("playlistName"),
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not link that BGM URL."));
+      return;
+    }
+
+    form.reset();
+    await loadCampaign();
+  }
+
+  async function uploadSfx(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const upload = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/sfx/tracks/upload`),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${dmToken}` },
+        body: data,
+      },
+    );
+
+    if (!upload.ok) {
+      setStatus(
+        await formatApiError(upload, "Could not upload that SFX track."),
+      );
+      return;
+    }
+
+    form.reset();
+    await loadCampaign();
+  }
+
+  async function linkSfxTrack(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/sfx/tracks/link`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({
+          name: data.get("name"),
+          url: data.get("url"),
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not link that SFX URL."));
+      return;
+    }
+
+    form.reset();
+    await loadCampaign();
+  }
+
+  async function setBgmTrack(asset: Asset) {
     const bgm = await fetch(apiUrl(`/api/campaigns/${route.slug}/bgm`), {
       method: "POST",
       headers: {
@@ -464,20 +972,260 @@ function App() {
       return;
     }
 
-    const startedAt = new Date().toISOString();
+    const updatedCampaign: Campaign = await bgm.json();
+    const startedAt = updatedCampaign.bgmStartedAt ?? new Date().toISOString();
+
     socket.emit("bgm:sync", {
       slug: route.slug,
       asset,
-      assetUrl: apiUrl(asset.url),
+      assetUrl: publicAssetUrl(asset.url),
       startedAt,
     });
-    event.currentTarget.reset();
+    await loadCampaign();
+  }
+
+  async function createBgmPlaylist(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/bgm/playlists`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ name: data.get("name") }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not create playlist."));
+      return;
+    }
+
+    form.reset();
+    await loadCampaign();
+  }
+
+  async function updateBgmPlaylist(
+    playlistId: string,
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/bgm/playlists/${playlistId}`),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ name: data.get("name") }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not rename playlist."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function assignBgmTrack(assetId: string, playlistId?: string) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/bgm/tracks/${assetId}/playlist`),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ playlistId }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not move that track."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function moveBgmTrack(assetId: string, direction: "up" | "down") {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/bgm/tracks/${assetId}/move`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ direction }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not reorder that track."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function moveSfxTrack(assetId: string, direction: "up" | "down") {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/sfx/tracks/${assetId}/move`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ direction }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not reorder that SFX."));
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function setPlayerThemePermission(allowed: boolean) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/player-theme-permission`),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ allowed }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not update player themes."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function updatePlayerTheme(themeKey: string) {
+    if (!currentPlayer) return;
+    const response = await fetch(
+      apiUrl(`/api/players/${currentPlayer.id}/theme`),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: themeKey }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not update your theme."));
+      return;
+    }
+
     await loadCampaign();
   }
 
   async function uploadCampaignMap(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+
+    try {
+      const upload = await fetch(
+        apiUrl(`/api/campaigns/${route.slug}/assets/upload`),
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${dmToken}` },
+          body: data,
+        },
+      );
+
+      if (!upload.ok) {
+        setStatus(
+          await formatApiError(upload, "Could not upload that campaign map."),
+        );
+        return;
+      }
+
+      const asset: Asset = await upload.json();
+
+      const campaignMap = await fetch(
+        apiUrl(`/api/campaigns/${route.slug}/campaignMap`),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${dmToken}`,
+          },
+          body: JSON.stringify({ assetId: asset.id }),
+        },
+      );
+
+      if (!campaignMap.ok) {
+        setStatus(
+          await formatApiError(campaignMap, "Could not set that campaign map."),
+        );
+        return;
+      }
+
+      const startedAt = new Date().toISOString();
+      socket.emit("campaignMap:sync", {
+        slug: route.slug,
+        asset,
+        assetUrl: apiUrl(asset.url),
+        startedAt,
+      });
+      form.reset();
+      await loadCampaign();
+    } catch (error) {
+      console.error("error: ", error);
+    }
+  }
+
+  async function setPlayerMapVisible(visible: boolean) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/player-map-visibility`),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ visible }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not update map visibility."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function uploadStoryImage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const upload = await fetch(
       apiUrl(`/api/campaigns/${route.slug}/assets/upload`),
       {
@@ -488,41 +1236,279 @@ function App() {
     );
 
     if (!upload.ok) {
-      setStatus(
-        await formatApiError(upload, "Could not upload that campaign map."),
-      );
+      setStatus(await formatApiError(upload, "Could not upload that image."));
       return;
     }
 
     const asset: Asset = await upload.json();
-    const campaignMap = await fetch(apiUrl(`/api/campaigns/${route.slug}/campaign-map`), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${dmToken}`,
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/story-image`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ assetId: asset.id }),
       },
-      body: JSON.stringify({ assetId: asset.id }),
-    });
+    );
 
-    if (!campaignMap.ok) {
-      setStatus(await formatApiError(campaignMap, "Could not set that campaign map."));
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not show that image."));
       return;
     }
 
-    const startedAt = new Date().toISOString();
-    socket.emit("campaign-map:sync", {
-      slug: route.slug,
-      asset,
-      assetUrl: apiUrl(asset.url),
-      startedAt,
+    form.reset();
+    await loadCampaign();
+  }
+
+  async function setStoryImageVisible(visible: boolean) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/story-image-visibility`),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ visible }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not update image visibility."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function archivePlayer(playerId: string, archived: boolean) {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/players/${playerId}/archive`),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ archived }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not update that player."),
+      );
+      return;
+    }
+
+    await loadCampaign();
+  }
+
+  async function createCampaignLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const locationId = String(data.get("locationId") ?? "");
+    const sortOrder = Number(data.get("sortOrder"));
+    const description = String(data.get("description") ?? "")
+      .split("\n")
+      .map((text, index) => ({ sortOrder: index, text: text.trim() }))
+      .filter((entry) => entry.text);
+
+    const response = await fetch(
+      apiUrl(
+        locationId
+          ? `/api/campaigns/${route.slug}/locations/${locationId}`
+          : `/api/campaigns/${route.slug}/locations`,
+      ),
+      {
+        method: locationId ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({
+          name: data.get("name"),
+          description,
+          sortOrder: Number.isFinite(sortOrder) ? sortOrder : undefined,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Could not save location."));
+      return false;
+    }
+
+    form.reset();
+    await loadCampaign();
+    return true;
+  }
+
+  async function createCampaignNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const attachmentTypes = data
+      .getAll("attachmentType")
+      .map((value) => String(value));
+    const attachmentNames = data
+      .getAll("attachmentName")
+      .map((value) => String(value).trim());
+    const attachmentDetails = data
+      .getAll("attachmentDetails")
+      .map((value) => String(value).trim());
+    const attachmentQuantities = data
+      .getAll("attachmentQuantity")
+      .map((value) => Number(value));
+    const triggerTypes = data
+      .getAll("triggerType")
+      .map((value) => String(value));
+    const triggerLabels = data
+      .getAll("triggerLabel")
+      .map((value) => String(value).trim());
+    const triggerDescriptions = data
+      .getAll("triggerDescription")
+      .map((value) => String(value).trim());
+    const triggerCheckTypes = data
+      .getAll("triggerCheckType")
+      .map((value) => String(value).trim());
+    const triggerDcs = data
+      .getAll("triggerDifficultyClass")
+      .map((value) => Number(value));
+    const triggerPlayerIds = data
+      .getAll("triggerPlayerId")
+      .map((value) => String(value));
+
+    const attachments = attachmentNames
+      .map((name, index) => ({
+        type: attachmentTypes[index],
+        name,
+        details: attachmentDetails[index] ?? "",
+        quantity: Number.isFinite(attachmentQuantities[index])
+          ? attachmentQuantities[index]
+          : undefined,
+      }))
+      .filter((attachment) => attachment.name);
+    const triggers = triggerLabels
+      .map((label, index) => ({
+        type: triggerTypes[index],
+        label,
+        description: triggerDescriptions[index] ?? "",
+        checkType: triggerCheckTypes[index] || undefined,
+        difficultyClass: Number.isFinite(triggerDcs[index])
+          ? triggerDcs[index]
+          : undefined,
+        playerId: triggerPlayerIds[index] || undefined,
+        sortOrder: index,
+      }))
+      .filter((trigger) => trigger.label);
+
+    const occurredAt = String(data.get("occurredAt") ?? "");
+    const noteId = String(data.get("noteId") ?? "");
+    const sortOrder = Number(data.get("sortOrder"));
+    const response = await fetch(
+      apiUrl(
+        noteId
+          ? `/api/campaigns/${route.slug}/notes/${noteId}`
+          : `/api/campaigns/${route.slug}/notes`,
+      ),
+      {
+        method: noteId ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({
+          locationId: String(data.get("locationId") ?? "") || undefined,
+          title: data.get("title"),
+          type: data.get("type"),
+          summary: data.get("summary"),
+          content: data.get("content"),
+          dmPrivate: data.get("dmPrivate") === "on",
+          occurredAt: occurredAt || undefined,
+          keywords: splitList(String(data.get("keywords") ?? "")),
+          playerIds: data.getAll("playerIds").map((value) => String(value)),
+          attachments,
+          triggers,
+          sortOrder: Number.isFinite(sortOrder) ? sortOrder : undefined,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not save campaign note."),
+      );
+      return false;
+    }
+
+    form.reset();
+    await loadCampaign();
+    return true;
+  }
+
+  async function searchCampaignNotes(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const params = new URLSearchParams({
+      q: String(data.get("q") ?? ""),
+      locationId: String(data.get("locationId") ?? ""),
+      playerId: String(data.get("playerId") ?? ""),
+      type: String(data.get("type") ?? ""),
     });
-    event.currentTarget.reset();
+
+    for (const key of Array.from(params.keys())) {
+      if (!params.get(key)) params.delete(key);
+    }
+
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/notes?${params}`),
+      {
+        headers: { Authorization: `Bearer ${dmToken}` },
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(await formatApiError(response, "Campaign note search failed."));
+      return;
+    }
+
+    setCampaignNoteResults(await response.json());
+  }
+
+  async function moveCampaignNote(noteId: string, direction: "up" | "down") {
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/notes/${noteId}/move`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${dmToken}`,
+        },
+        body: JSON.stringify({ direction }),
+      },
+    );
+
+    if (!response.ok) {
+      setStatus(
+        await formatApiError(response, "Could not move campaign note."),
+      );
+      return;
+    }
+
+    setCampaignNoteResults([]);
     await loadCampaign();
   }
 
   async function importKnowledge(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const response = await fetch(
       apiUrl(`/api/campaigns/${route.slug}/knowledge/import`),
       {
@@ -538,7 +1524,7 @@ function App() {
     }
 
     setStatus("Reference file imported and indexed.");
-    event.currentTarget.reset();
+    form.reset();
     await loadKnowledgeDocuments();
   }
 
@@ -570,6 +1556,9 @@ function App() {
       mode: String(data.get("mode") ?? "RulesOnly"),
       sourceType: String(data.get("sourceType") ?? ""),
     });
+    if (data.get("wholeWords") === "true") {
+      params.set("wholeWords", "true");
+    }
     if (!params.get("sourceType")) {
       params.delete("sourceType");
     }
@@ -601,6 +1590,7 @@ function App() {
         body: JSON.stringify({
           question: data.get("question"),
           mode: data.get("mode"),
+          wholeWords: data.get("wholeWords") === "true",
         }),
       },
     );
@@ -609,6 +1599,29 @@ function App() {
       setKnowledgeChat(await response.json());
     } else {
       setStatus(await formatApiError(response, "DM reference chat failed."));
+    }
+  }
+
+  async function askPlayerReference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const response = await fetch(
+      apiUrl(`/api/campaigns/${route.slug}/player-reference`),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: data.get("category"),
+          question: data.get("question"),
+          wholeWords: data.get("wholeWords") === "true",
+        }),
+      },
+    );
+
+    if (response.ok) {
+      setPlayerReferenceChat(await response.json());
+    } else {
+      setStatus(await formatApiError(response, "Player reference failed."));
     }
   }
 
@@ -668,10 +1681,19 @@ function App() {
 
     setStatus("Character sheet saved.");
     await loadCampaign();
+    await loadCharacterSheetHistory(playerId);
   }
 
   if (!route.slug) {
-    return <CampaignCreator onSubmit={createCampaign} status={status} />;
+    return (
+      <CampaignCreator
+        onSubmit={(event) =>
+          trackPending(pendingIds.createCampaign, () => createCampaign(event))
+        }
+        status={status}
+        isPending={isPending}
+      />
+    );
   }
 
   if (route.isDm && campaign) {
@@ -680,31 +1702,220 @@ function App() {
         className={`min-h-screen ${theme.bg} p-2 text-neutral-950 sm:p-3 lg:p-4`}
       >
         <section className="mx-auto grid max-w-[1920px] gap-3">
-          <DmCommandBar
+          <DmCommandBar campaign={campaign} theme={theme} status={status} />
+          <DmWorkspace
+            isPending={isPending}
+            currentCampaignMap={currentCampaignMap}
+            currentBgm={currentBgm}
+            currentStoryImage={currentStoryImage}
             campaign={campaign}
             theme={theme}
             muted={muted}
-            status={status}
-            currentBgm={currentBgm}
-            onToggleMuted={() => setMuted((value) => !value)}
-            onUploadBgm={uploadBgm}
-            onUploadCampaignMap={uploadCampaignMap}
-          />
-          <DmWorkspace
-            campaign={campaign}
-            theme={theme}
-            creatures={creatures}
-            onCreateEncounter={createEncounter}
-            onSearchCreatures={searchCreatures}
+            encounterDraft={encounterDraft}
+            editingEncounterId={editingEncounterId}
+            editingEncounterName={editingEncounterName}
+            onCreateEncounter={(event) =>
+              trackPending(pendingIds.createEncounter, () =>
+                createEncounter(event),
+              )
+            }
+            onEditEncounterDraft={editEncounterDraft}
+            onCancelEncounterDraftEdit={cancelEncounterDraftEdit}
+            onAddMonsterToEncounterDraft={addMonsterToEncounterDraft}
+            onRemoveMonsterFromEncounterDraft={removeMonsterFromEncounterDraft}
+            onUpdateEncounterDraftCreature={updateEncounterDraftCreature}
+            onAddEncounterDraftCreatureKeyItem={addEncounterDraftCreatureKeyItem}
+            onUpdateEncounterDraftCreatureKeyItem={
+              updateEncounterDraftCreatureKeyItem
+            }
+            onRemoveEncounterDraftCreatureKeyItem={
+              removeEncounterDraftCreatureKeyItem
+            }
+            onStartEncounter={(encounterId) =>
+              trackPending(pendingIds.startEncounter(encounterId), () =>
+                startEncounter(encounterId),
+              )
+            }
+            onBeginEncounterCombat={(encounterId) =>
+              trackPending(pendingIds.beginEncounterCombat(encounterId), () =>
+                beginEncounterCombat(encounterId),
+              )
+            }
+            onUpdateEncounterCreature={(
+              encounterId,
+              encounterCreatureId,
+              payload,
+            ) =>
+              trackPending(
+                pendingIds.updateEncounterCreature(encounterCreatureId),
+                () =>
+                  updateEncounterCreature(
+                    encounterId,
+                    encounterCreatureId,
+                    payload,
+                  ),
+              )
+            }
+            onSetEncounterStatus={(encounterId, encounterStatus) =>
+              trackPending(
+                pendingIds.setEncounterStatus(encounterId, encounterStatus),
+                () => setEncounterStatus(encounterId, encounterStatus),
+              )
+            }
+            onEndDmTurn={(encounterId) =>
+              trackPending(pendingIds.endDmTurn(encounterId), () =>
+                endDmTurn(encounterId),
+              )
+            }
+            onResolveEncounter={(encounterId) =>
+              trackPending(pendingIds.resolveEncounter(encounterId), () =>
+                resolveEncounter(encounterId),
+              )
+            }
             knowledgeDocuments={knowledgeDocuments}
             knowledgeResults={knowledgeResults}
             knowledgeChat={knowledgeChat}
-            onImportKnowledge={importKnowledge}
-            onImportBundledSrd={importBundledSrd}
-            onSearchKnowledge={searchKnowledge}
-            onAskKnowledge={askKnowledge}
-            onReindexKnowledge={reindexKnowledge}
-            onDeleteKnowledge={deleteKnowledge}
+            campaignNoteResults={campaignNoteResults}
+            monsterManualDocuments={monsterManualDocuments}
+            monsterCatalogResults={monsterCatalogResults}
+            onCreateCampaignLocation={(event) =>
+              trackPending(pendingIds.saveLocation, () =>
+                createCampaignLocation(event),
+              )
+            }
+            onCreateCampaignNote={(event) =>
+              trackPending(pendingIds.saveNote, () => createCampaignNote(event))
+            }
+            onSearchCampaignNotes={(event) =>
+              trackPending(pendingIds.searchNotes, () =>
+                searchCampaignNotes(event),
+              )
+            }
+            onMoveCampaignNote={(noteId, direction) =>
+              trackPending(pendingIds.moveNote(noteId, direction), () =>
+                moveCampaignNote(noteId, direction),
+              )
+            }
+            onUpdateCharacterSheet={(activePlayerId, payload) =>
+              trackPending(pendingIds.saveSheet(activePlayerId), () =>
+                updateCharacterSheet(activePlayerId, payload),
+              )
+            }
+            onArchivePlayer={(playerId, archived) =>
+              trackPending(pendingIds.archivePlayer(playerId), () =>
+                archivePlayer(playerId, archived),
+              )
+            }
+            onSetPlayerMapVisible={(visible) =>
+              trackPending(pendingIds.togglePlayerMap, () =>
+                setPlayerMapVisible(visible),
+              )
+            }
+            onSetPlayerThemePermission={(allowed) =>
+              trackPending(pendingIds.togglePlayerTheme, () =>
+                setPlayerThemePermission(allowed),
+              )
+            }
+            onUploadStoryImage={(event) =>
+              trackPending(pendingIds.uploadStoryImage, () =>
+                uploadStoryImage(event),
+              )
+            }
+            onSetStoryImageVisible={(visible) =>
+              trackPending(pendingIds.toggleStoryImage, () =>
+                setStoryImageVisible(visible),
+              )
+            }
+            onToggleMuted={() => setMuted((value) => !value)}
+            onUploadBgm={(event) =>
+              trackPending(pendingIds.uploadBgm, () => uploadBgm(event))
+            }
+            onLinkBgmTrack={(event) =>
+              trackPending(pendingIds.linkBgm, () => linkBgmTrack(event))
+            }
+            onSetBgmTrack={(asset) =>
+              trackPending(pendingIds.setBgmTrack(asset.id), () =>
+                setBgmTrack(asset),
+              )
+            }
+            onCreateBgmPlaylist={(event) =>
+              trackPending(pendingIds.createBgmPlaylist, () =>
+                createBgmPlaylist(event),
+              )
+            }
+            onUpdateBgmPlaylist={(playlistId, event) =>
+              trackPending(pendingIds.updateBgmPlaylist(playlistId), () =>
+                updateBgmPlaylist(playlistId, event),
+              )
+            }
+            onAssignBgmTrack={(assetId, playlistId) =>
+              trackPending(pendingIds.assignBgmTrack(assetId), () =>
+                assignBgmTrack(assetId, playlistId),
+              )
+            }
+            onMoveBgmTrack={(assetId, direction) =>
+              trackPending(pendingIds.moveBgmTrack(assetId, direction), () =>
+                moveBgmTrack(assetId, direction),
+              )
+            }
+            onUploadSfx={(event) =>
+              trackPending(pendingIds.uploadSfx, () => uploadSfx(event))
+            }
+            onLinkSfxTrack={(event) =>
+              trackPending(pendingIds.linkSfx, () => linkSfxTrack(event))
+            }
+            onMoveSfxTrack={(assetId, direction) =>
+              trackPending(pendingIds.moveSfxTrack(assetId, direction), () =>
+                moveSfxTrack(assetId, direction),
+              )
+            }
+            onUploadCampaignMap={(event) =>
+              trackPending(pendingIds.uploadCampaignMap, () =>
+                uploadCampaignMap(event),
+              )
+            }
+            onImportKnowledge={(event) =>
+              trackPending(pendingIds.importKnowledge, () =>
+                importKnowledge(event),
+              )
+            }
+            onImportBundledSrd={() =>
+              trackPending(pendingIds.importBundledSrd, importBundledSrd)
+            }
+            onSearchKnowledge={(event) =>
+              trackPending(pendingIds.searchKnowledge, () =>
+                searchKnowledge(event),
+              )
+            }
+            onAskKnowledge={(event) =>
+              trackPending(pendingIds.askKnowledge, () => askKnowledge(event))
+            }
+            onReindexKnowledge={(documentId) =>
+              trackPending(pendingIds.reindexKnowledge(documentId), () =>
+                reindexKnowledge(documentId),
+              )
+            }
+            onDeleteKnowledge={(documentId) =>
+              trackPending(pendingIds.deleteKnowledge(documentId), () =>
+                deleteKnowledge(documentId),
+              )
+            }
+            onImportMonsterManual={(event) =>
+              trackPending(pendingIds.importMonsterManual, () =>
+                importMonsterManual(event),
+              )
+            }
+            onImportSrdMonsterCatalog={() =>
+              trackPending(
+                pendingIds.importSrdMonsterCatalog,
+                importSrdMonsterCatalog,
+              )
+            }
+            onSearchMonsterCatalog={(event) =>
+              trackPending(pendingIds.searchMonsterCatalog, () =>
+                searchMonsterCatalog(event),
+              )
+            }
           />
         </section>
       </main>
@@ -750,37 +1961,292 @@ function App() {
             <p className="mb-4 text-sm font-semibold">{status}</p>
           ) : null}
           {route.isDm && !campaign ? (
-            <DmLogin onSubmit={loginDm} theme={theme} />
+            <DmLogin
+              onSubmit={(event) =>
+                trackPending(pendingIds.loginDm, () => loginDm(event))
+              }
+              theme={theme}
+              isPending={isPending}
+            />
           ) : null}
-          {!route.isDm && campaign ? (
-            <PlayerJoin onSubmit={createPlayer} theme={theme} />
+          {!route.isDm && campaign && !currentPlayer ? (
+            <PlayerJoin
+              onSubmit={(event) =>
+                trackPending(pendingIds.joinPlayer, () => createPlayer(event))
+              }
+              theme={theme}
+              isPending={isPending}
+            />
+          ) : null}
+          {!route.isDm && currentPlayer ? (
+            <div className="border-2 border-black bg-white/75 p-3 text-sm font-bold text-black">
+              Joined as {currentPlayer.name}
+            </div>
           ) : null}
         </aside>
 
         {campaign ? (
           route.isDm ? (
             <DmWorkspace
+              isPending={isPending}
+              currentCampaignMap={currentCampaignMap}
+              currentBgm={currentBgm}
+              currentStoryImage={currentStoryImage}
               campaign={campaign}
               theme={theme}
-              creatures={creatures}
-              onCreateEncounter={createEncounter}
-              onSearchCreatures={searchCreatures}
+              muted={muted}
+              encounterDraft={encounterDraft}
+              editingEncounterId={editingEncounterId}
+              editingEncounterName={editingEncounterName}
+              onCreateEncounter={(event) =>
+                trackPending(pendingIds.createEncounter, () =>
+                  createEncounter(event),
+                )
+              }
+              onEditEncounterDraft={editEncounterDraft}
+              onCancelEncounterDraftEdit={cancelEncounterDraftEdit}
+              onAddMonsterToEncounterDraft={addMonsterToEncounterDraft}
+              onRemoveMonsterFromEncounterDraft={
+                removeMonsterFromEncounterDraft
+              }
+              onUpdateEncounterDraftCreature={updateEncounterDraftCreature}
+              onAddEncounterDraftCreatureKeyItem={
+                addEncounterDraftCreatureKeyItem
+              }
+              onUpdateEncounterDraftCreatureKeyItem={
+                updateEncounterDraftCreatureKeyItem
+              }
+              onRemoveEncounterDraftCreatureKeyItem={
+                removeEncounterDraftCreatureKeyItem
+              }
+              onStartEncounter={(encounterId) =>
+                trackPending(pendingIds.startEncounter(encounterId), () =>
+                  startEncounter(encounterId),
+                )
+              }
+              onBeginEncounterCombat={(encounterId) =>
+                trackPending(pendingIds.beginEncounterCombat(encounterId), () =>
+                  beginEncounterCombat(encounterId),
+                )
+              }
+              onUpdateEncounterCreature={(
+                encounterId,
+                encounterCreatureId,
+                payload,
+              ) =>
+                trackPending(
+                  pendingIds.updateEncounterCreature(encounterCreatureId),
+                  () =>
+                    updateEncounterCreature(
+                      encounterId,
+                      encounterCreatureId,
+                      payload,
+                    ),
+                )
+              }
+              onSetEncounterStatus={(encounterId, encounterStatus) =>
+                trackPending(
+                  pendingIds.setEncounterStatus(encounterId, encounterStatus),
+                  () => setEncounterStatus(encounterId, encounterStatus),
+                )
+              }
+              onEndDmTurn={(encounterId) =>
+                trackPending(pendingIds.endDmTurn(encounterId), () =>
+                  endDmTurn(encounterId),
+                )
+              }
+              onResolveEncounter={(encounterId) =>
+                trackPending(pendingIds.resolveEncounter(encounterId), () =>
+                  resolveEncounter(encounterId),
+                )
+              }
               knowledgeDocuments={knowledgeDocuments}
               knowledgeResults={knowledgeResults}
               knowledgeChat={knowledgeChat}
-              onImportKnowledge={importKnowledge}
-              onImportBundledSrd={importBundledSrd}
-              onSearchKnowledge={searchKnowledge}
-              onAskKnowledge={askKnowledge}
-              onReindexKnowledge={reindexKnowledge}
-              onDeleteKnowledge={deleteKnowledge}
+              campaignNoteResults={campaignNoteResults}
+              monsterManualDocuments={monsterManualDocuments}
+              monsterCatalogResults={monsterCatalogResults}
+              onCreateCampaignLocation={(event) =>
+                trackPending(pendingIds.saveLocation, () =>
+                  createCampaignLocation(event),
+                )
+              }
+              onCreateCampaignNote={(event) =>
+                trackPending(pendingIds.saveNote, () =>
+                  createCampaignNote(event),
+                )
+              }
+              onSearchCampaignNotes={(event) =>
+                trackPending(pendingIds.searchNotes, () =>
+                  searchCampaignNotes(event),
+                )
+              }
+              onMoveCampaignNote={(noteId, direction) =>
+                trackPending(pendingIds.moveNote(noteId, direction), () =>
+                  moveCampaignNote(noteId, direction),
+                )
+              }
+              onUpdateCharacterSheet={(activePlayerId, payload) =>
+                trackPending(pendingIds.saveSheet(activePlayerId), () =>
+                  updateCharacterSheet(activePlayerId, payload),
+                )
+              }
+              onArchivePlayer={(playerId, archived) =>
+                trackPending(pendingIds.archivePlayer(playerId), () =>
+                  archivePlayer(playerId, archived),
+                )
+              }
+              onSetPlayerMapVisible={(visible) =>
+                trackPending(pendingIds.togglePlayerMap, () =>
+                  setPlayerMapVisible(visible),
+                )
+              }
+              onSetPlayerThemePermission={(allowed) =>
+                trackPending(pendingIds.togglePlayerTheme, () =>
+                  setPlayerThemePermission(allowed),
+                )
+              }
+              onUploadStoryImage={(event) =>
+                trackPending(pendingIds.uploadStoryImage, () =>
+                  uploadStoryImage(event),
+                )
+              }
+              onSetStoryImageVisible={(visible) =>
+                trackPending(pendingIds.toggleStoryImage, () =>
+                  setStoryImageVisible(visible),
+                )
+              }
+              onToggleMuted={() => setMuted((value) => !value)}
+              onUploadBgm={(event) =>
+                trackPending(pendingIds.uploadBgm, () => uploadBgm(event))
+              }
+              onLinkBgmTrack={(event) =>
+                trackPending(pendingIds.linkBgm, () => linkBgmTrack(event))
+              }
+              onSetBgmTrack={(asset) =>
+                trackPending(pendingIds.setBgmTrack(asset.id), () =>
+                  setBgmTrack(asset),
+                )
+              }
+              onCreateBgmPlaylist={(event) =>
+                trackPending(pendingIds.createBgmPlaylist, () =>
+                  createBgmPlaylist(event),
+                )
+              }
+              onUpdateBgmPlaylist={(playlistId, event) =>
+                trackPending(pendingIds.updateBgmPlaylist(playlistId), () =>
+                  updateBgmPlaylist(playlistId, event),
+                )
+              }
+              onAssignBgmTrack={(assetId, playlistId) =>
+                trackPending(pendingIds.assignBgmTrack(assetId), () =>
+                  assignBgmTrack(assetId, playlistId),
+                )
+              }
+              onMoveBgmTrack={(assetId, direction) =>
+                trackPending(pendingIds.moveBgmTrack(assetId, direction), () =>
+                  moveBgmTrack(assetId, direction),
+                )
+              }
+              onUploadSfx={(event) =>
+                trackPending(pendingIds.uploadSfx, () => uploadSfx(event))
+              }
+              onLinkSfxTrack={(event) =>
+                trackPending(pendingIds.linkSfx, () => linkSfxTrack(event))
+              }
+              onMoveSfxTrack={(assetId, direction) =>
+                trackPending(pendingIds.moveSfxTrack(assetId, direction), () =>
+                  moveSfxTrack(assetId, direction),
+                )
+              }
+              onUploadCampaignMap={(event) =>
+                trackPending(pendingIds.uploadCampaignMap, () =>
+                  uploadCampaignMap(event),
+                )
+              }
+              onImportKnowledge={(event) =>
+                trackPending(pendingIds.importKnowledge, () =>
+                  importKnowledge(event),
+                )
+              }
+              onImportBundledSrd={() =>
+                trackPending(pendingIds.importBundledSrd, importBundledSrd)
+              }
+              onSearchKnowledge={(event) =>
+                trackPending(pendingIds.searchKnowledge, () =>
+                  searchKnowledge(event),
+                )
+              }
+              onAskKnowledge={(event) =>
+                trackPending(pendingIds.askKnowledge, () => askKnowledge(event))
+              }
+              onReindexKnowledge={(documentId) =>
+                trackPending(pendingIds.reindexKnowledge(documentId), () =>
+                  reindexKnowledge(documentId),
+                )
+              }
+              onDeleteKnowledge={(documentId) =>
+                trackPending(pendingIds.deleteKnowledge(documentId), () =>
+                  deleteKnowledge(documentId),
+                )
+              }
+              onImportMonsterManual={(event) =>
+                trackPending(pendingIds.importMonsterManual, () =>
+                  importMonsterManual(event),
+                )
+              }
+              onImportSrdMonsterCatalog={() =>
+                trackPending(
+                  pendingIds.importSrdMonsterCatalog,
+                  importSrdMonsterCatalog,
+                )
+              }
+              onSearchMonsterCatalog={(event) =>
+                trackPending(pendingIds.searchMonsterCatalog, () =>
+                  searchMonsterCatalog(event),
+                )
+              }
+            />
+          ) : currentPlayer ? (
+            <PlayerWorkspace
+              isPending={isPending}
+              campaign={campaign}
+              player={currentPlayer}
+              currentCampaignMap={currentCampaignMap}
+              currentStoryImage={currentStoryImage}
+              theme={theme}
+              playerReferenceChat={playerReferenceChat}
+              characterSheetHistory={characterSheetHistory}
+              onAskPlayerReference={(event) =>
+                trackPending(pendingIds.askPlayerReference, () =>
+                  askPlayerReference(event),
+                )
+              }
+              onSubmitInitiative={(encounterId, activePlayerId, roll) =>
+                trackPending(
+                  pendingIds.submitInitiative(encounterId, activePlayerId),
+                  () => submitInitiative(encounterId, activePlayerId, roll),
+                )
+              }
+              onEndPlayerTurn={(encounterId, activePlayerId) =>
+                trackPending(
+                  pendingIds.endPlayerTurn(encounterId, activePlayerId),
+                  () => endPlayerTurn(encounterId, activePlayerId),
+                )
+              }
+              onUpdateCharacterSheet={(activePlayerId, payload) =>
+                trackPending(pendingIds.saveSheet(activePlayerId), () =>
+                  updateCharacterSheet(activePlayerId, payload),
+                )
+              }
+              onUpdatePlayerTheme={(themeKey) =>
+                trackPending(pendingIds.updateOwnTheme, () =>
+                  updatePlayerTheme(themeKey),
+                )
+              }
             />
           ) : (
-            <PlayerWorkspace
-              campaign={campaign}
-              theme={theme}
-              onUpdateCharacterSheet={updateCharacterSheet}
-            />
+            <PlayerWelcome theme={theme} />
           )
         ) : null}
       </section>
@@ -800,932 +2266,8 @@ async function formatApiError(response: Response, fallback: string) {
   }
 }
 
-function CampaignCreator({
-  onSubmit,
-  status,
-}: {
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  status: string;
-}) {
-  return (
-    <main className="min-h-screen bg-[#2a1748] p-6 text-neutral-950">
-      <form
-        onSubmit={onSubmit}
-        className="pixel-panel mx-auto mt-10 max-w-xl bg-[#f1e7ff] p-5"
-      >
-        <h1 className="mb-5 font-pixel text-lg leading-8 text-[#3d2368]">
-          New Campaign
-        </h1>
-        <Field label="Campaign name" name="name" />
-        <Field
-          label="DM password"
-          name="password"
-          type="password"
-          minLength={6}
-        />
-        <label className="mb-4 block text-sm font-bold">
-          Theme
-          <select
-            name="theme"
-            className="mt-2 w-full border-2 border-black bg-white p-3"
-          >
-            <option value="PURPLE_LILAC">Purple and lilac</option>
-            <option value="MINT_YELLOW">Mint green and pastel yellow</option>
-            <option value="PINK_GRAY">Light pink and gray</option>
-            <option value="DM_FORGE">DM forge</option>
-          </select>
-        </label>
-        {status ? (
-          <p className="mb-4 border-2 border-black bg-white p-3 text-sm font-bold text-[#7a1f45]">
-            {status}
-          </p>
-        ) : null}
-        <button className="pixel-button bg-[#7a45b8] px-4 py-3 font-bold text-white">
-          Raise the Banner
-        </button>
-      </form>
-    </main>
-  );
-}
-
-function DmLogin({
-  onSubmit,
-  theme,
-}: {
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  theme: { button: string };
-}) {
-  return (
-    <form onSubmit={onSubmit}>
-      <Field label="DM password" name="password" type="password" />
-      <button
-        className={`pixel-button w-full px-3 py-2 font-bold ${theme.button}`}
-      >
-        Unlock
-      </button>
-    </form>
-  );
-}
-
-function PlayerJoin({
-  onSubmit,
-  theme,
-}: {
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  theme: { button: string };
-}) {
-  return (
-    <form onSubmit={onSubmit}>
-      <Field label="New player" name="name" />
-      <button
-        className={`pixel-button flex w-full items-center justify-center gap-2 px-3 py-2 font-bold ${theme.button}`}
-      >
-        <UserPlus className="h-4 w-4" />
-        Join
-      </button>
-    </form>
-  );
-}
-
-type CharacterSheetPayload = {
-  stats: Record<string, string | number>;
-  equipment: { items: string[] };
-  money: Record<string, number>;
-  rolls: unknown[];
-  abilities: string[];
-};
-
-function PlayerWorkspace({
-  campaign,
-  theme,
-  onUpdateCharacterSheet,
-}: {
-  campaign: Campaign;
-  theme: Record<string, string>;
-  onUpdateCharacterSheet: (
-    playerId: string,
-    payload: CharacterSheetPayload,
-  ) => Promise<void>;
-}) {
-  return (
-    <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <section className={`pixel-panel ${theme.panel} p-4`}>
-        <h2 className="mb-4 flex items-center gap-2 font-pixel text-sm leading-6">
-          <Map className="h-5 w-5" />
-          Map
-        </h2>
-        <MapBoard campaign={campaign} />
-      </section>
-      <section className={`pixel-panel ${theme.panel} p-4`}>
-        <h2 className="mb-4 flex items-center gap-2 font-pixel text-sm leading-6">
-          <Coins className="h-5 w-5" />
-          Party Sheets
-        </h2>
-        <div className="grid gap-3">
-          {campaign.players.map((player) => (
-            <CharacterSheet
-              key={player.id}
-              player={player}
-              onSave={onUpdateCharacterSheet}
-            />
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DmCommandBar({
-  campaign,
-  theme,
-  muted,
-  status,
-  currentBgm,
-  onToggleMuted,
-  onUploadBgm,
-  onUploadCampaignMap
-}: {
-  campaign: Campaign;
-  theme: Record<string, string>;
-  muted: boolean;
-  status: string;
-  currentBgm?: Asset;
-  onToggleMuted: () => void;
-  onUploadBgm: (event: FormEvent<HTMLFormElement>) => void;
-  onUploadCampaignMap: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <header
-      className={`pixel-panel ${theme.panel} grid gap-3 p-3 text-sm lg:grid-cols-[minmax(220px,1fr)_minmax(320px,1.3fr)_minmax(320px,1.1fr)] lg:items-center`}
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        <Shield className="h-7 w-7 shrink-0" />
-        <div className="min-w-0">
-          <h1
-            className={`truncate font-pixel text-xs leading-5 ${theme.primary}`}
-          >
-            {campaign.name}
-          </h1>
-          <p className="text-[11px] font-black uppercase tracking-wide">
-            Campaign Manager
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-center">
-        <button
-          type="button"
-          className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
-          onClick={onToggleMuted}
-        >
-          {muted ? (
-            <VolumeX className="h-4 w-4" />
-          ) : (
-            <Volume2 className="h-4 w-4" />
-          )}
-          {muted ? "Muted" : "BGM"}
-        </button>
-        {currentBgm ? (
-          <BgmPlayer
-            asset={currentBgm}
-            muted={muted}
-            startedAt={campaign.bgmStartedAt}
-          />
-        ) : (
-          <p className="border-2 border-black bg-white/70 p-2 text-xs font-bold text-black">
-            No BGM selected
-          </p>
-        )}
-      </div>
-
-      <form
-        onSubmit={onUploadBgm}
-        className="grid gap-2 sm:grid-cols-[1fr_auto]"
-      >
-        <input type="hidden" name="kind" value="BGM" />
-        <input
-          name="file"
-          type="file"
-          accept="audio/*"
-          className="min-w-0 border-2 border-black bg-white p-2 text-xs text-black"
-          required
-        />
-        <button
-          className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
-        >
-          <Upload className="h-4 w-4" />
-          Upload
-        </button>
-      </form>
-
-      <form
-        onSubmit={onUploadCampaignMap}
-        className="grid gap-2 sm:grid-cols-[1fr_auto]"
-      >
-        <input type="hidden" name="kind" value="CampaignMap" />
-        <input
-          name="file"
-          type="file"
-          accept="image/*"
-          className="min-w-0 border-2 border-black bg-white p-2 text-xs text-black"
-          required />
-        <button
-          className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-xs font-black ${theme.button}`}
-        >
-          <Upload className="h-4 w-4" />
-          Upload
-        </button>
-      </form>
-
-      {status ? (
-        <p className="border-2 border-black bg-white/80 p-2 text-xs font-bold text-black lg:col-span-3">
-          {status}
-        </p>
-      ) : null}
-    </header>
-  );
-}
-
-function DmWorkspace({
-  campaign,
-  theme,
-  creatures,
-  onCreateEncounter,
-  onSearchCreatures,
-  knowledgeDocuments,
-  knowledgeResults,
-  knowledgeChat,
-  onImportKnowledge,
-  onImportBundledSrd,
-  onSearchKnowledge,
-  onAskKnowledge,
-  onReindexKnowledge,
-  onDeleteKnowledge,
-}: {
-  campaign: Campaign;
-  theme: Record<string, string>;
-  creatures: Creature[];
-  onCreateEncounter: (event: FormEvent<HTMLFormElement>) => void;
-  onSearchCreatures: (event: FormEvent<HTMLFormElement>) => void;
-  knowledgeDocuments: KnowledgeDocument[];
-  knowledgeResults: KnowledgeSource[];
-  knowledgeChat: KnowledgeChatResponse | null;
-  onImportKnowledge: (event: FormEvent<HTMLFormElement>) => void;
-  onImportBundledSrd: () => void;
-  onSearchKnowledge: (event: FormEvent<HTMLFormElement>) => void;
-  onAskKnowledge: (event: FormEvent<HTMLFormElement>) => void;
-  onReindexKnowledge: (documentId?: string) => void;
-  onDeleteKnowledge: (documentId: string) => void;
-}) {
-  return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
-      <KnowledgePanel
-        theme={theme}
-        documents={knowledgeDocuments}
-        results={knowledgeResults}
-        chat={knowledgeChat}
-        onImport={onImportKnowledge}
-        onImportBundledSrd={onImportBundledSrd}
-        onSearch={onSearchKnowledge}
-        onAsk={onAskKnowledge}
-        onReindex={onReindexKnowledge}
-        onDelete={onDeleteKnowledge}
-      />
-
-      <section className={`pixel-panel ${theme.panel} p-3`}>
-        <h2 className="mb-3 flex items-center gap-2 font-pixel text-xs leading-5">
-          <Swords className="h-5 w-5" />
-          Encounters
-        </h2>
-        <form onSubmit={onCreateEncounter} className="mb-4">
-          <Field label="Encounter name" name="name" />
-          <button
-            className={`pixel-button w-full px-3 py-2 font-bold ${theme.button}`}
-          >
-            Prepare
-          </button>
-        </form>
-        <form onSubmit={onSearchCreatures} className="mb-3 grid gap-2">
-          <Field label="Creature" name="q" />
-          <Field label="Environment" name="environment" />
-          <button
-            className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 font-bold ${theme.button}`}
-          >
-            <Search className="h-4 w-4" />
-            Search
-          </button>
-        </form>
-        <div className="grid gap-2">
-          {creatures.map((creature) => (
-            <div
-              key={creature.id}
-              className="border-2 border-black bg-white/80 p-3 text-black"
-            >
-              <div className="flex items-center gap-3">
-                {creature.imageUrl ? (
-                  <img
-                    src={creature.imageUrl}
-                    alt=""
-                    className="h-12 w-12 border-2 border-black object-cover"
-                  />
-                ) : (
-                  <Skull className="h-10 w-10" />
-                )}
-                <div>
-                  <p className="font-bold">{creature.name}</p>
-                  <p className="text-xs uppercase">
-                    {creature.preferredEnvironment}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className={`pixel-panel ${theme.panel} p-3 xl:col-span-2`}>
-        <h2 className="mb-3 flex items-center gap-2 font-pixel text-xs leading-5">
-          <Map className="h-5 w-5" />
-          Battle Map
-        </h2>
-        <MapBoard campaign={campaign} />
-      </section>
-    </div>
-  );
-}
-
-function KnowledgePanel({
-  theme,
-  documents,
-  results,
-  chat,
-  onImport,
-  onImportBundledSrd,
-  onSearch,
-  onAsk,
-  onReindex,
-  onDelete,
-}: {
-  theme: Record<string, string>;
-  documents: KnowledgeDocument[];
-  results: KnowledgeSource[];
-  chat: KnowledgeChatResponse | null;
-  onImport: (event: FormEvent<HTMLFormElement>) => void;
-  onImportBundledSrd: () => void;
-  onSearch: (event: FormEvent<HTMLFormElement>) => void;
-  onAsk: (event: FormEvent<HTMLFormElement>) => void;
-  onReindex: (documentId?: string) => void;
-  onDelete: (documentId: string) => void;
-}) {
-  return (
-    <section className={`pixel-panel ${theme.panel} p-3`}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-pixel text-xs leading-5">
-          <MessageSquare className="h-4 w-4" />
-          DM Reference
-        </h2>
-        <button
-          type="button"
-          className={`pixel-button grid h-9 w-9 place-items-center ${theme.button}`}
-          onClick={() => onReindex()}
-          title="Rebuild index"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
-      </div>
-
-      <form
-        onSubmit={onAsk}
-        className="mb-3 grid gap-2 lg:grid-cols-[1fr_150px_auto]"
-      >
-        <Field label="Ask the sources" name="question" compact />
-        <SelectField
-          label="Mode"
-          name="mode"
-          options={retrievalModes}
-          defaultValue="RulesOnly"
-          compact
-        />
-        <button
-          className={`pixel-button mt-0 flex items-center justify-center gap-2 px-4 py-2 text-sm font-black lg:mt-6 ${theme.button}`}
-        >
-          <MessageSquare className="h-4 w-4" />
-          Ask
-        </button>
-      </form>
-
-      {chat ? (
-        <div className="mb-3 max-h-[52vh] overflow-auto border-2 border-black bg-[#f8f4e8] p-3 text-black">
-          {chat.llmStatus ? (
-            <p className="mb-2 text-xs font-black uppercase">
-              LLM: {chat.llmStatus}
-            </p>
-          ) : null}
-          <pre className="whitespace-pre-wrap text-sm font-semibold leading-6">
-            {chat.answer}
-          </pre>
-          {chat.retrievedChunks.length ? (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-sm font-black">
-                Retrieved chunks
-              </summary>
-              <div className="mt-2 grid gap-2">
-                {chat.retrievedChunks.map((chunk) => (
-                  <SourceResult key={chunk.id} result={chunk} showFullText />
-                ))}
-              </div>
-            </details>
-          ) : null}
-        </div>
-      ) : (
-        <div className="mb-3 border-2 border-black bg-[#f8f4e8] p-3 text-sm font-bold text-black">
-          Ask rules questions, prep questions, or campaign-consistency
-          questions.
-        </div>
-      )}
-
-      <details className="mb-3 border-2 border-black bg-white/85 p-3 text-black">
-        <summary className="cursor-pointer font-black">
-          Search imported sources
-        </summary>
-        <form onSubmit={onSearch} className="mt-3 grid gap-2">
-          <Field label="Search" name="q" compact />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <SelectField
-              label="Mode"
-              name="mode"
-              options={retrievalModes}
-              defaultValue="RulesOnly"
-              compact
-            />
-            <SelectField
-              label="Source filter"
-              name="sourceType"
-              options={[
-                "SRD",
-                "",
-                ...sourceTypes.filter((type) => type !== "SRD"),
-              ]}
-              defaultValue="SRD"
-              optionLabel={(value) => value || "Any"}
-              compact
-            />
-          </div>
-          <button
-            className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-sm font-black ${theme.button}`}
-          >
-            <Search className="h-4 w-4" />
-            Search
-          </button>
-        </form>
-
-        <div className="mt-3 grid max-h-64 gap-2 overflow-auto pr-1">
-          {results.map((result) => (
-            <SourceResult key={result.id} result={result} />
-          ))}
-        </div>
-      </details>
-
-      <details className="border-2 border-black bg-white/85 p-3 text-black">
-        <summary className="cursor-pointer font-black">
-          <FileText className="h-4 w-4" />
-          Sources ({documents.length})
-        </summary>
-
-        <form onSubmit={onImport} className="mt-3 grid gap-2">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="Source name" name="sourceName" compact />
-            <SelectField
-              label="Source type"
-              name="sourceType"
-              options={sourceTypes}
-              compact
-            />
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Field
-              label="License"
-              name="licenseText"
-              required={false}
-              compact
-            />
-            <Field
-              label="Attribution"
-              name="attributionText"
-              required={false}
-              compact
-            />
-          </div>
-          <input
-            name="file"
-            type="file"
-            accept=".txt,.md,.markdown,.json,.pdf,text/plain,application/json"
-            className="w-full border-2 border-black bg-white p-2 text-sm"
-            required
-          />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <button
-              className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-sm font-black ${theme.button}`}
-            >
-              <Upload className="h-4 w-4" />
-              Import
-            </button>
-            <button
-              type="button"
-              className={`pixel-button flex items-center justify-center gap-2 px-3 py-2 text-sm font-black ${theme.button}`}
-              onClick={onImportBundledSrd}
-            >
-              <BookOpen className="h-4 w-4" />
-              Import SRD
-            </button>
-          </div>
-        </form>
-
-        <div className="mt-3 grid max-h-64 gap-2 overflow-auto pr-1">
-          {documents.map((document) => (
-            <div
-              key={document.id}
-              className="border-2 border-black bg-white p-2 text-sm"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-black">{document.sourceName}</p>
-                  <p className="text-xs uppercase">
-                    {document.sourceType} - {document.status} -{" "}
-                    {document.chunkCount} chunks
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="grid h-8 w-8 place-items-center border-2 border-black bg-[#bff3df]"
-                    onClick={() => onReindex(document.id)}
-                    title="Reindex source"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    className="grid h-8 w-8 place-items-center border-2 border-black bg-[#ffd1dc]"
-                    onClick={() => onDelete(document.id)}
-                    title="Delete source"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <p className="mt-1 break-words text-xs">
-                {document.originalFileName}
-              </p>
-              {document.attributionText ? (
-                <p className="mt-2 text-xs">{document.attributionText}</p>
-              ) : null}
-              {document.errorMessage ? (
-                <p className="mt-2 text-xs font-bold text-[#8a1f1f]">
-                  {document.errorMessage}
-                </p>
-              ) : null}
-            </div>
-          ))}
-          {!documents.length ? (
-            <p className="border-2 border-black bg-white p-3 text-sm font-bold">
-              No sources imported yet.
-            </p>
-          ) : null}
-        </div>
-      </details>
-    </section>
-  );
-}
-
-function SourceResult({
-  result,
-  showFullText = false,
-}: {
-  result: KnowledgeSource & { text?: string };
-  showFullText?: boolean;
-}) {
-  const section = result.sectionPath.join(" > ") || result.title;
-  return (
-    <details
-      className="border-2 border-black bg-white p-2 text-sm"
-      open={showFullText}
-    >
-      <summary className="cursor-pointer font-black">
-        {result.sourceName} - {section}
-      </summary>
-      <p className="mt-1 text-xs uppercase">
-        {result.sourceType}
-        {result.pageNumber ? ` - page ${result.pageNumber}` : ""} - score{" "}
-        {result.relevanceScore}
-      </p>
-      <p className="mt-2 whitespace-pre-wrap text-sm">
-        {showFullText && result.text ? result.text : result.textPreview}
-      </p>
-    </details>
-  );
-}
-
-function BgmPlayer({
-  asset,
-  muted,
-  startedAt,
-}: {
-  asset: Asset;
-  muted: boolean;
-  startedAt?: string | null;
-}) {
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
-
-  React.useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !startedAt || !audio.duration || Number.isNaN(audio.duration))
-      return;
-
-    const elapsedSeconds = Math.max(
-      0,
-      (Date.now() - new Date(startedAt).getTime()) / 1000,
-    );
-    audio.currentTime = elapsedSeconds % audio.duration;
-  }, [asset.id, startedAt]);
-
-  return (
-    <div className="border-2 border-black bg-white/70 p-2 text-black">
-      <p className="mb-1 truncate text-[11px] font-black">{asset.name}</p>
-      <audio
-        ref={audioRef}
-        src={apiUrl(asset.url)}
-        muted={muted}
-        loop
-        controls
-        autoPlay
-        className="h-8 w-full"
-        onLoadedMetadata={() => {
-          const audio = audioRef.current;
-          if (
-            !audio ||
-            !startedAt ||
-            !audio.duration ||
-            Number.isNaN(audio.duration)
-          )
-            return;
-          const elapsedSeconds = Math.max(
-            0,
-            (Date.now() - new Date(startedAt).getTime()) / 1000,
-          );
-          audio.currentTime = elapsedSeconds % audio.duration;
-        }}
-      />
-    </div>
-  );
-}
-
-function MapBoard({ campaign }: { campaign: Campaign }) {
-  return (
-    <div className="relative h-[38vh] min-h-[260px] max-h-[520px] w-full max-w-full overflow-hidden border-4 border-black bg-[linear-gradient(45deg,#7aa66a_25%,#517a55_25%,#517a55_50%,#7aa66a_50%,#7aa66a_75%,#517a55_75%)] bg-[length:32px_32px]">
-      {campaign.mapPins.map((pin) => (
-        <div
-          key={pin.id}
-          className="absolute grid h-12 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center border-2 border-black bg-white text-xs font-bold shadow-pixel"
-          style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-          title={pin.label}
-        >
-          {pin.iconUrl ? (
-            <img
-              src={pin.iconUrl}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            pin.label.slice(0, 2)
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CharacterSheet({
-  player,
-  onSave,
-}: {
-  player: Player;
-  onSave: (playerId: string, payload: CharacterSheetPayload) => Promise<void>;
-}) {
-  const stats = player.stats ?? {};
-  const money = player.money ?? {};
-
-  async function submitSheet(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-
-    await onSave(player.id, {
-      stats: {
-        level: numberFromForm(data, "level", 1),
-        className: String(data.get("className") ?? ""),
-        species: String(data.get("species") ?? ""),
-        strength: numberFromForm(data, "strength", 10),
-        dexterity: numberFromForm(data, "dexterity", 10),
-        constitution: numberFromForm(data, "constitution", 10),
-        intelligence: numberFromForm(data, "intelligence", 10),
-        wisdom: numberFromForm(data, "wisdom", 10),
-        charisma: numberFromForm(data, "charisma", 10),
-      },
-      equipment: {
-        items: splitList(String(data.get("items") ?? "")),
-      },
-      money: {
-        copper: numberFromForm(data, "copper", 0),
-        silver: numberFromForm(data, "silver", 0),
-        electrum: numberFromForm(data, "electrum", 0),
-        gold: numberFromForm(data, "gold", 0),
-        platinum: numberFromForm(data, "platinum", 0),
-      },
-      rolls: player.rolls ?? [],
-      abilities: splitList(String(data.get("abilities") ?? "")),
-    });
-  }
-
-  return (
-    <form
-      onSubmit={submitSheet}
-      className="border-2 border-black bg-white/85 p-3 text-black shadow-pixel"
-    >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 font-bold">
-          <BookOpen className="h-4 w-4" />
-          {player.name}
-        </h3>
-        <button className="pixel-button flex items-center justify-center gap-2 bg-[#348f76] px-3 py-2 text-sm font-bold text-white">
-          <Save className="h-4 w-4" />
-          Save
-        </button>
-      </div>
-      <div className="mb-3 grid gap-2 md:grid-cols-3">
-        <SheetField
-          label="Level"
-          name="level"
-          type="number"
-          defaultValue={stats.level ?? 1}
-          min={1}
-        />
-        <SheetField
-          label="Class"
-          name="className"
-          defaultValue={stats.className ?? ""}
-        />
-        <SheetField
-          label="Species"
-          name="species"
-          defaultValue={stats.species ?? ""}
-        />
-      </div>
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        {[
-          "strength",
-          "dexterity",
-          "constitution",
-          "intelligence",
-          "wisdom",
-          "charisma",
-        ].map((stat) => (
-          <SheetField
-            key={stat}
-            label={stat.slice(0, 3).toUpperCase()}
-            name={stat}
-            type="number"
-            defaultValue={stats[stat] ?? 10}
-          />
-        ))}
-      </div>
-      <div className="mb-3 grid gap-2 sm:grid-cols-2">
-        <SheetField
-          label="Equipment"
-          name="items"
-          defaultValue={(player.equipment?.items ?? []).join(", ")}
-        />
-        <SheetField
-          label="Abilities"
-          name="abilities"
-          defaultValue={(player.abilities ?? []).join(", ")}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        {["copper", "silver", "electrum", "gold", "platinum"].map((coin) => (
-          <SheetField
-            key={coin}
-            label={coin.slice(0, 2).toUpperCase()}
-            name={coin}
-            type="number"
-            defaultValue={money[coin] ?? 0}
-            min={0}
-          />
-        ))}
-      </div>
-    </form>
-  );
-}
-
-function numberFromForm(data: FormData, name: string, fallback: number) {
-  const value = Number(data.get(name));
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function splitList(value: string) {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function SheetField({
-  label,
-  name,
-  defaultValue,
-  type = "text",
-  min,
-}: {
-  label: string;
-  name: string;
-  defaultValue: string | number;
-  type?: string;
-  min?: number;
-}) {
-  return (
-    <label className="block text-xs font-black uppercase">
-      {label}
-      <input
-        name={name}
-        type={type}
-        min={min}
-        defaultValue={defaultValue}
-        className="mt-1 w-full border-2 border-black bg-white p-2 text-sm text-black"
-        required
-      />
-    </label>
-  );
-}
-
-function Field({
-  label,
-  name,
-  type = "text",
-  minLength,
-  required = true,
-  compact = false,
-}: {
-  label: string;
-  name: string;
-  type?: string;
-  minLength?: number;
-  required?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <label className={`${compact ? "mb-0" : "mb-4"} block text-sm font-bold`}>
-      {label}
-      <input
-        name={name}
-        type={type}
-        minLength={minLength}
-        className={`${compact ? "mt-1 p-2 text-sm" : "mt-2 p-3"} w-full border-2 border-black bg-white text-black`}
-        required={required}
-      />
-    </label>
-  );
-}
-
-function SelectField<T extends string>({
-  label,
-  name,
-  options,
-  defaultValue,
-  compact = false,
-  optionLabel = (value) => value,
-}: {
-  label: string;
-  name: string;
-  options: T[];
-  defaultValue?: T;
-  compact?: boolean;
-  optionLabel?: (value: T) => string;
-}) {
-  return (
-    <label className={`${compact ? "mb-0" : "mb-4"} block text-sm font-bold`}>
-      {label}
-      <select
-        name={name}
-        defaultValue={defaultValue}
-        className={`${compact ? "mt-1 p-2 text-sm" : "mt-2 p-3"} w-full border-2 border-black bg-white text-black`}
-      >
-        {options.map((option) => (
-          <option key={option || "any"} value={option}>
-            {optionLabel(option)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+function publicAssetUrl(url: string) {
+  return /^https?:\/\//i.test(url) ? url : apiUrl(url);
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

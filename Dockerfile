@@ -20,7 +20,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl poppler-utils \
+  && apt-get install -y --no-install-recommends openssl poppler-utils tesseract-ocr \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules

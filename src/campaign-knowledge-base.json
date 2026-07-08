@@ -1,0 +1,94 @@
+{
+    "campaignId": "sadfad1sag2rt43ughf3ud",
+    "currentLocationId": "df78d7fd838939diwei93",
+    "locations": [
+        {
+            "name": "Thrast",
+            "locationId": "df78d7fd838939diwei93",
+            "description": [
+                {
+                    "sortOrder": 0,
+                    "text": "A coastal city where the continent of Erramadia receives it's imports and ships out it's exports."
+                },
+                {
+                    "sortOrder": 1,
+                    "text": "This is one of the two official ports that travelers use to enter the continent."
+                }
+            ],
+            "events": [
+                {
+                    "eventId": "7f6d87fg76986fg987frd",
+                    "eventType": "combatEncounter",
+                    "description": [
+                        {
+                            "sortOrder": 0,
+                            "dmPrivateNote": false,
+                            "text": "The party approaches an adventurer's store called Davey Jade's. The party notices a large canine-like creature with 3 heads chained up outside the store. The creature whimpers softly as the party walks by"
+                        },
+                        {
+                            "sortOrder": 1,
+                            "dmPrivateNote": false,
+                            "text": "The party enters Davey Jade's. They peruse the wares and spend their coin on various gear."
+                        },
+                        {
+                            "sortOrder": 2,
+                            "dmPrivateNote": false,
+                            "trigger": {
+                                "triggerType": "rollCheck",
+                                "checkType": "perception",
+                                "difficultyClass": 5
+                            },
+                            "text": "A large muscular man with a large battleworn axe strapped across his back eyes the party from across the store room. He sizes them up and scoffs."
+                        },
+                        {
+                            "sortOrder": 3,
+                            "dmPrivateNote": true,
+                            "text": "The party exits the store after having bought their gear."
+                        },
+                        {
+                            "sortOrder": 4,
+                            "dmPrivateNote": true,
+                            "trigger": {
+                                "triggerType": "rollCheck",
+                                "checkType": "perception",
+                                "difficultyClass": 1
+                            },
+                            "interactingPlayerId": "NotSet",
+                            "obtainableGear": [
+                                "Battle Axe",
+                                "50 GP"
+                            ],
+                            "text": "Suddenly there is a loud thud heard as the large man from Davey Jade's forearm crashes into the back of [replace-with-player-id]'s head."
+                        }
+                    ]
+                },
+                {
+                    "eventId": "kjfdasfd567f8daas8",
+                    "eventType": "noncombatEncounter",
+                    "description": [
+                        {
+                            "sortOrder": 0,
+                            "dmPrivateNote": false,
+                            "trigger": null,
+                            "interactingPlayerId": "NotSet",
+                            "obtainableGear": [],
+                            "text": "The party looks back to Davey Jade's. You look down the stone street and see that the canine creature has 3 heads, each with distinctive features and facial expressions. The Cerberus is still chained up next to Davey Jade's."
+                        },
+                        {
+                            "sortOrder": 1,
+                            "dmPrivateNote": true,
+                            "trigger": {
+                                "triggerType": "rollCheck",
+                                "checkType": "animalHandling",
+                                "difficultyClass": 3
+                            },
+                            "interactingPlayerId": "fsda9897687565869af0dfgadfsadsc",
+                            "obtainableGear": [],
+                            "text": "[replace-with-player-id] has the option to roll an animal handling check (Intelligence) to try and befriend the Cerberus."
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

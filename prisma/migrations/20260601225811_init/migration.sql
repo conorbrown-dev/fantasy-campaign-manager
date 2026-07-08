@@ -16,6 +16,7 @@ CREATE TABLE "Campaign" (
     "theme" "CampaignTheme" NOT NULL DEFAULT 'PURPLE_LILAC',
     "currentBgmAssetId" TEXT,
     "bgmStartedAt" TIMESTAMP(3),
+    "campaignMapSetAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

@@ -1,6 +1,4 @@
-const apiOrigin =
-  import.meta.env.VITE_API_ORIGIN ??
-  (import.meta.env.DEV ? "http://localhost:3000" : "");
+const apiOrigin = import.meta.env.VITE_API_ORIGIN ?? "";
 
 export function apiUrl(path: string) {
   return `${apiOrigin}${path}`;

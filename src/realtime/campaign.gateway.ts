@@ -21,7 +21,7 @@ type CampaignMapSyncPayload = {
   slug: string;
   assetUrl: string;
   startedAt: string;
-}
+};
 
 @WebSocketGateway({
   cors: {
@@ -47,9 +47,23 @@ export class CampaignGateway {
     this.server.to(this.room(payload.slug)).emit("bgm:sync", payload);
   }
 
-  @SubscribeMessage("campaign-map:sync")
+  @SubscribeMessage("campaignMap:sync")
   syncCampaignMap(@MessageBody() payload: CampaignMapSyncPayload) {
-    this.server.to(this.room(payload.slug)).emit("campaign-map:sync", payload);
+    this.server.to(this.room(payload.slug)).emit("campaignMap:sync", payload);
+  }
+
+  syncCampaignState(slug: string) {
+    this.server.to(this.room(slug)).emit("campaign:sync", {
+      slug,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  syncEncounter(slug: string) {
+    this.server.to(this.room(slug)).emit("encounter:sync", {
+      slug,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   private room(slug: string) {

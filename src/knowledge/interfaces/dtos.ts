@@ -1,4 +1,6 @@
 import {
+  IsBoolean,
+  IsBooleanString,
   IsEnum,
   IsIn,
   IsNotEmpty,
@@ -11,6 +13,34 @@ import {
   retrievalModes,
   RetrievalMode,
 } from "../domain/knowledge.types";
+
+export const playerReferenceCategories = [
+  "All",
+  "Attacks",
+  "AbilityScores",
+  "AdventuringGear",
+  "Alignment",
+  "Backgrounds",
+  "DamageTypes",
+  "Classes",
+  "Combat",
+  "Conditions",
+  "Equipment",
+  "Feats",
+  "Languages",
+  "Magic",
+  "MountsVehicles",
+  "Races",
+  "SavingThrows",
+  "Spells",
+  "TimeMovement",
+  "Tools",
+  "Weapons",
+  "PlayInstructions",
+] as const;
+
+export type PlayerReferenceCategory =
+  (typeof playerReferenceCategories)[number];
 
 export class ImportKnowledgeDto {
   @IsString()
@@ -41,6 +71,10 @@ export class SearchKnowledgeDto {
   @IsEnum(knowledgeSourceTypes)
   @IsOptional()
   sourceType?: KnowledgeSourceType;
+
+  @IsBooleanString()
+  @IsOptional()
+  wholeWords?: string;
 }
 
 export class ChatKnowledgeDto {
@@ -51,4 +85,21 @@ export class ChatKnowledgeDto {
   @IsIn(retrievalModes)
   @IsOptional()
   mode?: RetrievalMode;
+
+  @IsBoolean()
+  @IsOptional()
+  wholeWords?: boolean;
+}
+
+export class PlayerReferenceDto {
+  @IsIn(playerReferenceCategories)
+  category!: PlayerReferenceCategory;
+
+  @IsString()
+  @IsNotEmpty()
+  question!: string;
+
+  @IsBoolean()
+  @IsOptional()
+  wholeWords?: boolean;
 }

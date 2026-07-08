@@ -1,22 +1,23 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  root: 'web',
+  root: "web",
   build: {
-    outDir: '../web-dist',
-    emptyOutDir: true
+    outDir: "../web-dist",
+    emptyOutDir: true,
   },
   server: {
     port: 5173,
+    allowedHosts: ["tabletop.orangecastle.games"],
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/socket.io': {
-        target: 'http://localhost:3000',
-        ws: true
-      }
-    }
-  }
+      "/api": "http://localhost:3000",
+      "/uploads": "http://localhost:3000",
+      "/socket.io": {
+        target: "http://localhost:3000",
+        ws: true,
+      },
+    },
+  },
 });
-

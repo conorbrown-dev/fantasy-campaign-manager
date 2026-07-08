@@ -22,9 +22,39 @@ enum QuestStatus {
 }
 
 enum EncounterStatus {
-  PLANNED
+  DRAFT
+  PENDING
   ACTIVE
-  RESOLVED
+  ARCHIVED
+}
+
+enum CampaignNoteType {
+  STORY_POINT
+  IMPORTANT_EVENT
+  COMBAT_ENCOUNTER
+  NONCOMBAT_ENCOUNTER
+  LOOT_GEAR
+  NPC_NOTE
+  LOCATION_DETAIL
+}
+
+enum CampaignNoteAttachmentType {
+  LOOT_GEAR
+  NPC
+  STORY_POINT
+  IMPORTANT_EVENT
+  COMBAT_ENCOUNTER
+  NONCOMBAT_ENCOUNTER
+}
+
+enum CampaignNoteTriggerType {
+  ROLL_CHECK
+  PLAYER_ACTION
+  LOCATION_ENTRY
+  ITEM_POSSESSION
+  STORY_FLAG
+  TIME_ELAPSED
+  DM_DECISION
 }
 
 enum KnowledgeSourceType {
@@ -52,37 +82,55 @@ enum KnowledgeChunkIndexStatus {
 }
 
 model Campaign {
-  id                 String              @id @default(cuid())
-  slug               String              @unique
-  name               String
-  dmPasswordHash     String
-  theme              CampaignTheme       @default(PURPLE_LILAC)
-  currentBgmAssetId  String?
-  bgmStartedAt       DateTime?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  players            Player[]
-  quests             Quest[]
-  encounters         Encounter[]
-  assets             Asset[]
-  mapPins            MapPin[]
-  knowledgeDocuments KnowledgeDocument[]
-  knowledgeChunks    KnowledgeChunk[]
+  id                        String                  @id @default(cuid())
+  slug                      String                  @unique
+  name                      String
+  dmPasswordHash            String
+  theme                     CampaignTheme           @default(PURPLE_LILAC)
+  currentBgmAssetId         String?
+  currentCampaignMapAssetId String?
+  currentStoryImageAssetId  String?
+  playerMapVisible          Boolean                 @default(true)
+  storyImageVisible         Boolean                 @default(false)
+  allowPlayerTheme          Boolean                 @default(false)
+  bgmStartedAt              DateTime?
+  campaignMapSetAt          DateTime?
+  storyImageSetAt           DateTime?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  players                   Player[]
+  quests                    Quest[]
+  encounters                Encounter[]
+  assets                    Asset[]
+  mapPins                   MapPin[]
+  locations                 CampaignLocation[]
+  campaignNotes             CampaignNote[]
+  knowledgeDocuments        KnowledgeDocument[]
+  knowledgeChunks           KnowledgeChunk[]
+  monsterManualDocuments    MonsterManualDocument[]
+  monsterCatalogEntries     MonsterCatalogEntry[]
+  bgmPlaylists              BgmPlaylist[]
 }
 
 model Player {
-  id         String   @id @default(cuid())
-  campaignId String
-  name       String
-  iconUrl    String?
-  stats      Json
-  equipment  Json
-  money      Json
-  rolls      Json
-  abilities  Json
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id                      String                   @id @default(cuid())
+  campaignId              String
+  name                    String
+  accessCodeHash          String?
+  iconUrl                 String?
+  theme                   CampaignTheme?
+  stats                   Json
+  equipment               Json
+  money                   Json
+  rolls                   Json
+  abilities               Json
+  archivedAt              DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  campaign                Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignNotes           CampaignNotePlayer[]
+  characterSheetRevisions CharacterSheetRevision[]
+  campaignNoteTriggers    CampaignNoteTrigger[]
 }
 
 model Quest {
@@ -120,11 +168,53 @@ model Creature {
   encounterCreatures   EncounterCreature[]
 }
 
+model MonsterManualDocument {
+  id               String                @id @default(cuid())
+  campaignId       String
+  title            String
+  originalFileName String
+  mimeType         String?
+  contentHash      String
+  importedAt       DateTime              @default(now())
+  status           String                @default("IMPORTED")
+  errorMessage     String?
+  pageCount        Int                   @default(0)
+  entryCount       Int                   @default(0)
+  campaign         Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  entries          MonsterCatalogEntry[]
+
+  @@unique([campaignId, contentHash])
+  @@index([campaignId, importedAt])
+}
+
+model MonsterCatalogEntry {
+  id              String                @id @default(cuid())
+  campaignId      String
+  documentId      String
+  creatureId      String?
+  name            String
+  pageNumber      Int
+  pageImageUrl    String
+  sizeType        String?
+  armorClass      Int?
+  hitPoints       Int?
+  challengeRating String?
+  sourceText      String
+  searchText      String
+  createdAt       DateTime              @default(now())
+  campaign        Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  document        MonsterManualDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, name])
+  @@index([campaignId, pageNumber])
+  @@index([documentId])
+}
+
 model Encounter {
   id         String              @id @default(cuid())
   campaignId String
   name       String
-  status     EncounterStatus     @default(PLANNED)
+  status     EncounterStatus     @default(DRAFT)
   mapAssetId String?
   ruleNotes  Json
   creatures  EncounterCreature[]
@@ -132,25 +222,54 @@ model Encounter {
 }
 
 model EncounterCreature {
-  id          String    @id @default(cuid())
-  encounterId String
-  creatureId  String
-  nickname    String?
-  currentHp   Int?
-  initiative  Int?
-  encounter   Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
-  creature    Creature  @relation(fields: [creatureId], references: [id], onDelete: Restrict)
+  id           String    @id @default(cuid())
+  encounterId  String
+  creatureId   String
+  nickname     String?
+  armorClass   Int?
+  maxHitPoints Int?
+  currentHp    Int?
+  speed        Int?
+  initiative   Int?
+  strength     Int?
+  dexterity    Int?
+  constitution Int?
+  intelligence Int?
+  wisdom       Int?
+  charisma     Int?
+  keyItems     String[]  @default([])
+  encounter    Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  creature     Creature  @relation(fields: [creatureId], references: [id], onDelete: Restrict)
 }
 
 model Asset {
+  id            String       @id @default(cuid())
+  campaignId    String
+  bgmPlaylistId String?
+  kind          String
+  name          String
+  url           String
+  mimeType      String
+  sortOrder     Int          @default(0)
+  createdAt     DateTime     @default(now())
+  campaign      Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  bgmPlaylist   BgmPlaylist? @relation(fields: [bgmPlaylistId], references: [id], onDelete: SetNull)
+
+  @@index([bgmPlaylistId, sortOrder])
+}
+
+model BgmPlaylist {
   id         String   @id @default(cuid())
   campaignId String
-  kind       String
   name       String
-  url        String
-  mimeType   String
+  sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  tracks     Asset[]
+
+  @@unique([campaignId, name])
+  @@index([campaignId, sortOrder])
 }
 
 model MapPin {
@@ -161,6 +280,105 @@ model MapPin {
   x          Float
   y          Float
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model CampaignLocation {
+  id          String         @id @default(cuid())
+  campaignId  String
+  name        String
+  description Json           @default("[]")
+  sortOrder   Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  campaign    Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  notes       CampaignNote[]
+
+  @@index([campaignId, name])
+  @@index([campaignId, sortOrder])
+}
+
+model CampaignNote {
+  id          String                   @id @default(cuid())
+  campaignId  String
+  locationId  String?
+  title       String
+  type        CampaignNoteType         @default(IMPORTANT_EVENT)
+  summary     String                   @default("")
+  content     String                   @default("")
+  dmPrivate   Boolean                  @default(true)
+  keywords    String[]                 @default([])
+  occurredAt  DateTime?
+  sortOrder   Int                      @default(0)
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  campaign    Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  location    CampaignLocation?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  players     CampaignNotePlayer[]
+  attachments CampaignNoteAttachment[]
+  triggers    CampaignNoteTrigger[]
+
+  @@index([campaignId, type])
+  @@index([campaignId, locationId])
+  @@index([campaignId, occurredAt])
+}
+
+model CampaignNotePlayer {
+  noteId   String
+  playerId String
+  note     CampaignNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  player   Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, playerId])
+  @@index([playerId])
+}
+
+model CampaignNoteAttachment {
+  id        String                     @id @default(cuid())
+  noteId    String
+  type      CampaignNoteAttachmentType
+  name      String
+  details   String                     @default("")
+  quantity  Int?
+  metadata  Json                       @default("{}")
+  createdAt DateTime                   @default(now())
+  note      CampaignNote               @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId, type])
+}
+
+model CampaignNoteTrigger {
+  id              String                  @id @default(cuid())
+  noteId          String
+  type            CampaignNoteTriggerType
+  label           String
+  description     String                  @default("")
+  checkType       String?
+  difficultyClass Int?
+  playerId        String?
+  metadata        Json                    @default("{}")
+  sortOrder       Int                     @default(0)
+  createdAt       DateTime                @default(now())
+  note            CampaignNote            @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  player          Player?                 @relation(fields: [playerId], references: [id], onDelete: SetNull)
+
+  @@index([noteId, sortOrder])
+  @@index([playerId])
+  @@index([type])
+}
+
+model CharacterSheetRevision {
+  id        String   @id @default(cuid())
+  playerId  String
+  summary   String   @default("")
+  stats     Json
+  equipment Json
+  money     Json
+  rolls     Json
+  abilities Json
+  createdAt DateTime @default(now())
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, createdAt])
 }
 
 model KnowledgeDocument {

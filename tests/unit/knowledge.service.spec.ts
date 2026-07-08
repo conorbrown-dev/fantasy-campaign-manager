@@ -45,6 +45,59 @@ describe("knowledge chunking", () => {
       "Lantern Imp",
     ]);
   });
+
+  it("chunks SRD race text into named race trait sections", () => {
+    const chunks = chunkDocument(
+      "SRD_CC_v5.1.pdf",
+      [
+        "Races",
+        "Racial Traits",
+        "Dwarf",
+        "Dwarf Traits",
+        "Your dwarf character has an assortment of inborn abilities.",
+      ].join("\n"),
+    );
+
+    expect(chunks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Dwarf Traits",
+          sectionPath: ["Races", "Dwarf", "Dwarf Traits"],
+          text: expect.stringContaining("inborn abilities"),
+        }),
+      ]),
+    );
+  });
+
+  it("chunks two-column SRD spell lists by class and spell level", () => {
+    const chunks = chunkDocument(
+      "SRD_CC_v5.1.pdf",
+      [
+        "Spell Lists                                                 Druid Spells",
+        "Bard Spells                                                 Cantrips (0 Level)",
+        "Cantrips (0 Level)                                          Druidcraft",
+        "Dancing Lights                                              Guidance",
+        "Light                                                       1st Level",
+        "1st Level                                                   Animal Friendship",
+        "Animal Friendship                                           Cure Wounds",
+      ].join("\n"),
+    );
+
+    expect(chunks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Cantrips (0 Level)",
+          sectionPath: ["Spell Lists", "Druid Spells", "Cantrips (0 Level)"],
+          text: expect.stringContaining("Druidcraft"),
+        }),
+        expect.objectContaining({
+          title: "1st Level",
+          sectionPath: ["Spell Lists", "Druid Spells", "1st Level"],
+          text: expect.stringContaining("Animal Friendship"),
+        }),
+      ]),
+    );
+  });
 });
 
 describe("KnowledgeService", () => {
@@ -188,6 +241,260 @@ describe("KnowledgeService", () => {
         relevanceScore: expect.any(Number),
       }),
     );
+  });
+
+  it("can require whole-word matches for exact reference terms", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-rat",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Rat",
+        sectionPath: ["Monsters", "Rat"],
+        pageNumber: 378,
+        text: "Rat. Tiny beast, unaligned.",
+        textPreview: "Rat. Tiny beast, unaligned.",
+        embedding: await embedding.embed("tiny beast animal"),
+      },
+      {
+        id: "chunk-aberration",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Aberration",
+        sectionPath: ["Monster Types", "Aberration"],
+        pageNumber: 254,
+        text: "Aberrations are utterly alien beings.",
+        textPreview: "Aberrations are utterly alien beings.",
+        embedding: await embedding.embed("rat"),
+      },
+    ]);
+
+    const results = await service.search(
+      "silver-keep",
+      "rat",
+      "RulesOnly",
+      "SRD",
+      undefined,
+      { wholeWords: true },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["chunk-rat"]);
+  });
+
+  it("retrieves class feature chunks by exact terms when vector similarity is weak", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-class",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Ranger",
+        sectionPath: ["Classes", "Ranger"],
+        pageNumber: 32,
+        text: "Ranger Class Features include hit points, proficiencies, and equipment.",
+        textPreview:
+          "Ranger Class Features include hit points, proficiencies, and equipment.",
+        embedding: await embedding.embed("unrelated downtime crafting rules"),
+      },
+    ]);
+
+    const results = await service.search(
+      "silver-keep",
+      "What class features do rangers get?",
+      "RulesOnly",
+      "SRD",
+    );
+
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        title: "Ranger",
+        pageNumber: 32,
+      }),
+    );
+  });
+
+  it("prefers SRD weapon table chunks over monster weapon attack text", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-monster",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Goblin",
+        sectionPath: ["Monsters", "Goblin"],
+        pageNumber: 160,
+        text: "Scimitar. Melee Weapon Attack: +4 to hit, reach 5 ft., one target.",
+        textPreview:
+          "Scimitar. Melee Weapon Attack: +4 to hit, reach 5 ft., one target.",
+        embedding: await embedding.embed("weapon attack monster scimitar"),
+      },
+      {
+        id: "chunk-weapons",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Weapons",
+        sectionPath: ["Equipment", "Weapons"],
+        pageNumber: 70,
+        text: "Simple Melee Weapons\nClub\nDagger\nGreatclub\nSimple Ranged Weapons\nCrossbow, light\nDart\nShortbow\nMartial Melee Weapons\nBattleaxe\nLongsword\nWarhammer\nMartial Ranged Weapons\nLongbow\nNet\nWeapon Properties",
+        textPreview:
+          "Simple Melee Weapons Club Dagger Greatclub Simple Ranged Weapons Crossbow, light Dart Shortbow",
+        embedding: await embedding.embed("unrelated lodging expenses"),
+      },
+    ]);
+
+    const results = await service.search(
+      "silver-keep",
+      "List the weapons available to players",
+      "RulesOnly",
+      "SRD",
+    );
+
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        id: "chunk-weapons",
+        title: "Weapons",
+      }),
+    );
+  });
+
+  it("appends retrieved weapon names when the generated answer is vague", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-weapons",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Weapons",
+        sectionPath: ["Equipment", "Weapons"],
+        pageNumber: 70,
+        text: "Simple Melee Weapons\nClub\nDagger\nGreatclub\nMartial Ranged Weapons\nLongbow\nNet",
+        textPreview:
+          "Simple Melee Weapons Club Dagger Greatclub Martial Ranged Weapons Longbow Net",
+        embedding: await embedding.embed("weapon table"),
+      },
+    ]);
+
+    const result = await service.chat(
+      "silver-keep",
+      "List the weapons available to players",
+    );
+
+    expect(result.answer).toContain("Retrieved List Details");
+    expect(result.answer).toContain(
+      "Weapons found: Club, Dagger, Greatclub, Longbow, Net.",
+    );
+  });
+
+  it("appends retrieved playable race names when the generated answer is vague", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-races",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Races",
+        sectionPath: ["Races"],
+        pageNumber: 3,
+        text: "Dwarf Traits\nElf Traits\nHalfling Traits\nHuman Traits\nDragonborn Traits\nGnome Traits\nHalf-Elf Traits\nHalf-Orc Traits\nTiefling Traits",
+        textPreview:
+          "Dwarf Traits Elf Traits Halfling Traits Human Traits Dragonborn Traits",
+        embedding: await embedding.embed("race traits"),
+      },
+    ]);
+
+    const result = await service.chat(
+      "silver-keep",
+      "What races can players choose?",
+    );
+
+    expect(result.answer).toContain("Retrieved List Details");
+    expect(result.answer).toContain(
+      "Playable races found: Dwarf, Elf, Halfling, Human, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling.",
+    );
+  });
+
+  it("prefers the Druid spell list for class spell questions", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-monster-druid",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Druid",
+        sectionPath: ["Monsters", "Druid"],
+        pageNumber: 399,
+        text: "Spellcasting. The druid is a 4th-level spellcaster. Its spellcasting ability is Wisdom.",
+        textPreview:
+          "Spellcasting. The druid is a 4th-level spellcaster. Its spellcasting ability is Wisdom.",
+        embedding: await embedding.embed("druid spellcasting monster"),
+      },
+      {
+        id: "chunk-druid-spells",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Spell Lists",
+        sectionPath: ["Spell Lists"],
+        pageNumber: 107,
+        text: "Druid Spells\nCantrips (0 Level)\nDruidcraft\nGuidance\nMending\n1st Level\nAnimal Friendship\nCure Wounds\nEntangle\n2nd Level\nBarkskin\nMoonbeam",
+        textPreview:
+          "Druid Spells Cantrips Druidcraft Guidance Mending 1st Level Animal Friendship Cure Wounds Entangle",
+        embedding: await embedding.embed("unrelated character options"),
+      },
+    ]);
+
+    const results = await service.search(
+      "silver-keep",
+      "What spells can Druids cast?",
+      "RulesOnly",
+      "SRD",
+    );
+
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        id: "chunk-druid-spells",
+        pageNumber: 107,
+      }),
+    );
+  });
+
+  it("appends the Druid spell list when the generated answer is vague", async () => {
+    const embedding = new LocalEmbeddingService();
+    prisma.knowledgeChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-druid-spells",
+        documentId: "doc-1",
+        sourceName: "SRD 5.1",
+        sourceType: "SRD",
+        title: "Spell Lists",
+        sectionPath: ["Spell Lists"],
+        pageNumber: 107,
+        text: "Druid Spells\nCantrips (0 Level)\nDruidcraft\nGuidance\nMending\n1st Level\nAnimal Friendship\nCure Wounds\nEntangle",
+        textPreview:
+          "Druid Spells Cantrips Druidcraft Guidance Mending 1st Level Animal Friendship Cure Wounds Entangle",
+        embedding: await embedding.embed("druid spell list"),
+      },
+    ]);
+
+    const result = await service.chat(
+      "silver-keep",
+      "What spells can Druids cast?",
+    );
+
+    expect(result.answer).toContain("Retrieved List Details");
+    expect(result.answer).toContain("Druid spells found:");
+    expect(result.answer).toContain("Cantrips: Druidcraft, Guidance");
+    expect(result.answer).toContain("1st Level: Animal Friendship");
+    expect(result.answer).toContain("9th Level: Foresight");
   });
 
   it("constructs the DM assistant prompt with retrieved context", () => {

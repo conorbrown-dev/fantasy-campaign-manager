@@ -12,6 +12,8 @@ export function createMockPrismaService() {
     },
     player: {
       create: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
     },
     quest: {
@@ -29,6 +31,24 @@ export function createMockPrismaService() {
     },
     mapPin: {
       create: vi.fn(),
+    },
+    campaignLocation: {
+      create: vi.fn(),
+      findFirst: vi.fn(),
+    },
+    campaignNote: {
+      create: vi.fn(),
+      findMany: vi.fn(),
+    },
+    campaignNotePlayer: {
+      create: vi.fn(),
+    },
+    campaignNoteAttachment: {
+      create: vi.fn(),
+    },
+    characterSheetRevision: {
+      create: vi.fn(),
+      findMany: vi.fn(),
     },
     knowledgeDocument: {
       create: vi.fn(),

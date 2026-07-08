@@ -6,18 +6,22 @@ import {
   Get,
   Inject,
   Param,
+  ParseIntPipe,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { Response } from "express";
 import { DmAuthGuard } from "../../campaigns/interfaces/dm-auth.guard";
 import { KnowledgeService } from "../application/knowledge.service";
 import {
   ChatKnowledgeDto,
   ImportKnowledgeDto,
+  PlayerReferenceDto,
   SearchKnowledgeDto,
 } from "./dtos";
 
@@ -37,7 +41,7 @@ export class KnowledgeController {
   @Post("import")
   @UseInterceptors(
     FileInterceptor("file", {
-      limits: { fileSize: 20 * 1024 * 1024 },
+      limits: { fileSize: 500 * 1024 * 1024 },
     }),
   )
   importDocument(
@@ -90,16 +94,52 @@ export class KnowledgeController {
 
   @Get("search")
   search(@Param("slug") slug: string, @Query() query: SearchKnowledgeDto) {
-    return this.knowledge.search(slug, query.q, query.mode, query.sourceType);
+    return this.knowledge.search(
+      slug,
+      query.q,
+      query.mode,
+      query.sourceType,
+      undefined,
+      { wholeWords: query.wholeWords === "true" },
+    );
   }
 
   @Post("chat")
   chat(@Param("slug") slug: string, @Body() dto: ChatKnowledgeDto) {
-    return this.knowledge.chat(slug, dto.question, dto.mode);
+    return this.knowledge.chat(slug, dto.question, dto.mode, {
+      wholeWords: dto.wholeWords === true,
+    });
   }
 
   @Get("attributions")
   attributions(@Param("slug") slug: string) {
     return this.knowledge.attributions(slug);
+  }
+}
+
+@Controller("campaigns/:slug/player-reference")
+export class PlayerReferenceController {
+  constructor(
+    @Inject(KnowledgeService) private readonly knowledge: KnowledgeService,
+  ) {}
+
+  @Post()
+  ask(@Param("slug") slug: string, @Body() dto: PlayerReferenceDto) {
+    return this.knowledge.playerReference(slug, dto.category, dto.question, {
+      wholeWords: dto.wholeWords === true,
+    });
+  }
+
+  @Get("srd/pages/:pageNumber/image")
+  async viewSrdPage(
+    @Param("slug") slug: string,
+    @Param("pageNumber", ParseIntPipe) pageNumber: number,
+    @Res() response: Response,
+  ) {
+    const imageUrl = await this.knowledge.renderBundledSrdPageImage(
+      slug,
+      pageNumber,
+    );
+    return response.redirect(imageUrl);
   }
 }
