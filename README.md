@@ -71,6 +71,64 @@ docker compose logs -f ollama
 docker compose exec app npx prisma studio
 ```
 
+## Railway with a local Ollama model
+
+Railway cannot reach `localhost` on the machine running Ollama. Publish a
+dedicated hostname for Ollama through Cloudflare Tunnel, protect that hostname
+with Cloudflare Access, and have the Railway API authenticate with an Access
+service token. Do not expose the Ollama port directly to the public internet.
+
+1. On the machine running Ollama, create a separate tunnel hostname such as
+   `llm.example.com` that forwards to `http://localhost:11434`. Keep this
+   separate from the hostname that serves the web app.
+2. In Cloudflare Zero Trust, create a Self-hosted Access application for that
+   hostname. Add a **Service Auth** policy and create a service token for the
+   Railway API. Do not add a public allow policy.
+3. Add these Railway variables (as secrets where appropriate):
+
+   ```text
+   OLLAMA_BASE_URL=https://llm.example.com
+   OLLAMA_MODEL=llama3.1:8b
+   OLLAMA_CF_ACCESS_CLIENT_ID=<Cloudflare service-token client ID>
+   OLLAMA_CF_ACCESS_CLIENT_SECRET=<Cloudflare service-token client secret>
+   ```
+
+The API sends the service-token values as `CF-Access-Client-Id` and
+`CF-Access-Client-Secret` on each request. For local development, leave both
+variables empty and continue using `http://localhost:11434`.
+
+If you put a custom gateway in front of Ollama as an additional control, set
+the same `OLLAMA_GATEWAY_API_KEY` secret in Railway and configure that gateway
+to require it in the `X-LLM-Gateway-Key` request header. The application never
+sends browser traffic directly to Ollama; prompts flow through the NestJS API.
+
+## Deploying the web app to Railway
+
+The repository includes [railway.toml](railway.toml), which tells Railway to
+build the existing Dockerfile and use `/api/health` for health checks. Railway
+Postgres is provisioned as a separate service in the project:
+
+1. Create a Railway project and choose **Deploy from GitHub repo**, then select
+   this repository. Railway will detect `railway.toml` and build the Dockerfile.
+2. Select **Add → Database → PostgreSQL** and wait for the database to finish
+   provisioning.
+3. Open the web service's **Variables** tab and add a reference to the
+   Postgres service's `DATABASE_URL` using Railway's variable reference picker.
+   Do not use a local `localhost` connection string. Also add a long random
+   `JWT_SECRET`.
+4. Add the `OLLAMA_*` variables described above. Leave them unset if the app
+   should run without AI generation.
+5. Deploy. The container entrypoint runs `prisma migrate deploy` and seeds the
+   starter data before starting the server. Railway supplies `PORT`; the app
+   listens on it automatically.
+6. In **Settings → Networking**, select **Generate Domain** (or attach your
+   own domain). Confirm that `/api/health` returns `{\"status\":\"ok\"}`.
+
+Uploaded assets are stored under `/app/uploads`. Railway's filesystem is
+ephemeral, so add a Railway Volume mounted at `/app/uploads` if uploaded maps,
+images, or audio must survive redeploys. Database records persist in the
+Railway PostgreSQL service.
+
 ## Route Shape
 
 - Create a campaign from `/`

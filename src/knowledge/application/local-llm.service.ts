@@ -9,9 +9,13 @@ type OllamaGenerateResponse = {
 export class LocalLlmService {
   private readonly baseUrl = process.env.OLLAMA_BASE_URL?.replace(/\/$/, "");
   private readonly model = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
+  private readonly accessClientId = process.env.OLLAMA_CF_ACCESS_CLIENT_ID;
+  private readonly accessClientSecret =
+    process.env.OLLAMA_CF_ACCESS_CLIENT_SECRET;
+  private readonly gatewayApiKey = process.env.OLLAMA_GATEWAY_API_KEY;
 
   isConfigured() {
-    return Boolean(this.baseUrl);
+    return Boolean(this.baseUrl) && this.hasCompleteAccessServiceToken();
   }
 
   async generate(prompt: string) {
@@ -21,9 +25,26 @@ export class LocalLlmService {
       );
     }
 
+    if (!this.hasCompleteAccessServiceToken()) {
+      throw new ServiceUnavailableException(
+        "Cloudflare Access configuration is incomplete. Set both OLLAMA_CF_ACCESS_CLIENT_ID and OLLAMA_CF_ACCESS_CLIENT_SECRET, or neither for an unprotected local Ollama instance.",
+      );
+    }
+
     const response = await fetch(`${this.baseUrl}/api/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.accessClientId
+          ? { "CF-Access-Client-Id": this.accessClientId }
+          : {}),
+        ...(this.accessClientSecret
+          ? { "CF-Access-Client-Secret": this.accessClientSecret }
+          : {}),
+        ...(this.gatewayApiKey
+          ? { "X-LLM-Gateway-Key": this.gatewayApiKey }
+          : {}),
+      },
       body: JSON.stringify({
         model: this.model,
         prompt,
@@ -54,5 +75,9 @@ export class LocalLlmService {
     }
 
     return (body.response ?? "").trim();
+  }
+
+  private hasCompleteAccessServiceToken() {
+    return Boolean(this.accessClientId) === Boolean(this.accessClientSecret);
   }
 }
