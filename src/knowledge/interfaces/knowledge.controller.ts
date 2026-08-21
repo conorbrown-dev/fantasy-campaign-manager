@@ -104,8 +104,8 @@ export class KnowledgeController {
     );
   }
 
-  @Post("chat")
-  chat(@Param("slug") slug: string, @Body() dto: ChatKnowledgeDto) {
+  @Post("answer")
+  answer(@Param("slug") slug: string, @Body() dto: ChatKnowledgeDto) {
     return this.knowledge.chat(slug, dto.question, dto.mode, {
       wholeWords: dto.wholeWords === true,
     });

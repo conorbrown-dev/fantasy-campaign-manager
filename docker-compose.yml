@@ -25,8 +25,6 @@ services:
     environment:
       DATABASE_URL: postgresql://dnd_campaign_manager:dnd_campaign_manager@db:5432/dnd_campaign_manager?schema=public
       JWT_SECRET: local-docker-development-secret-change-me
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: llama3.1:8b
       PORT: 3000
     ports:
       - "3000:3000"
@@ -35,16 +33,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      ollama:
-        condition: service_started
-
-  ollama:
-    image: ollama/ollama:latest
-    gpus: all
-    volumes:
-      - ollama-data:/root/.ollama
 
 volumes:
   postgres-data:
   uploads-data:
-  ollama-data:

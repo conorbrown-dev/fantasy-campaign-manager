@@ -6,7 +6,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  MessageSquare,
   RefreshCw,
   Search,
   Trash2,
@@ -66,8 +65,8 @@ export function KnowledgePanel({
     <section className={`pixel-panel ${theme.panel} p-3`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-pixel text-xs leading-5">
-          <MessageSquare className="h-4 w-4" />
-          DM Reference
+          <BookOpen className="h-4 w-4" />
+          SRD Rulebook
         </h2>
         <button
           type="button"
@@ -88,7 +87,7 @@ export function KnowledgePanel({
         onSubmit={onAsk}
         className="mb-3 grid gap-2 lg:grid-cols-[1fr_150px_auto_auto]"
       >
-        <Field label="Ask the sources" name="question" compact />
+        <Field label="Find a rule" name="question" compact />
         <SelectField
           label="Mode"
           name="mode"
@@ -108,21 +107,17 @@ export function KnowledgePanel({
         >
           <BusyButtonContent
             loading={askLoading}
-            loadingLabel="Asking..."
-            icon={<MessageSquare className="h-4 w-4" />}
+            loadingLabel="Finding..."
+            icon={<BookOpen className="h-4 w-4" />}
           >
-            Ask
+            Find Rule
           </BusyButtonContent>
         </button>
       </form>
 
       {chat ? (
         <div className="mb-3 max-h-[52vh] overflow-auto border-2 border-black bg-[#f8f4e8] p-3 text-black">
-          {chat.llmStatus ? (
-            <p className="mb-2 text-xs font-black uppercase">
-              LLM: {chat.llmStatus}
-            </p>
-          ) : null}
+          <p className="mb-2 text-xs font-black uppercase">SRD source lookup</p>
           <pre className="whitespace-pre-wrap text-sm font-semibold leading-6">
             {chat.answer}
           </pre>
@@ -141,8 +136,8 @@ export function KnowledgePanel({
         </div>
       ) : (
         <div className="mb-3 border-2 border-black bg-[#f8f4e8] p-3 text-sm font-bold text-black">
-          Ask rules questions, prep questions, or campaign-consistency
-          questions.
+          Search the imported SRD for a rule and its source passages. Results
+          are retrieved directly from the rulebook; no AI model is required.
         </div>
       )}
 

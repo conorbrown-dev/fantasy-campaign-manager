@@ -292,7 +292,7 @@ export type KnowledgeChatResponse = {
   answer: string;
   sources: KnowledgeSource[];
   retrievedChunks: Array<KnowledgeSource & { text: string }>;
-  llmStatus?: string;
+  answerMode?: "retrieval";
 };
 
 export type MonsterCatalogEntry = {

@@ -21,7 +21,6 @@ import { PlayerReferenceCategory } from "../interfaces/dtos";
 import { extractDocumentText } from "./document-text-extractor";
 import { chunkDocument, hashContent } from "./knowledge-chunker";
 import { LocalEmbeddingService, tokenize } from "./local-embedding.service";
-import { LocalLlmService } from "./local-llm.service";
 
 type ImportKnowledgeInput = {
   sourceName: string;
@@ -81,8 +80,6 @@ export class KnowledgeService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(LocalEmbeddingService)
     private readonly embeddings: LocalEmbeddingService,
-    @Inject(LocalLlmService)
-    private readonly llm: LocalLlmService,
   ) {}
 
   async importDocument(slug: string, input: ImportKnowledgeInput) {
@@ -434,51 +431,11 @@ export class KnowledgeService {
       dmChatChunkLimit,
       options,
     );
-    const prompt = this.buildPrompt(question, chunks);
-
-    if (!chunks.length) {
-      return {
-        answer:
-          "Direct Answer\nI could not verify that from the provided sources.\n\nSources Used\nNo relevant imported sources were found.",
-        sources: [],
-        retrievedChunks: [],
-        prompt,
-        llmStatus: "not_used",
-      };
-    }
-
-    let answer: string;
-    let llmStatus = "generated";
-
-    try {
-      answer = await this.llm.generate(prompt);
-      answer = withConcreteListFacts(answer, question, chunks);
-    } catch (error) {
-      llmStatus =
-        error instanceof Error
-          ? `unavailable: ${error.message}`
-          : "unavailable";
-      answer = [
-        "Direct Answer",
-        "The local LLM is not available, so I could not generate a full answer. I did retrieve relevant source context below.",
-        concreteFactsBlock(question, chunks)
-          ? `\nRetrieved List Details\n${concreteFactsBlock(question, chunks)}`
-          : "",
-        "\nRules Basis",
-        chunks.map((chunk) => sourceLine(chunk, true)).join("\n"),
-        "\nDM Ruling Suggestion",
-        "Review the retrieved source chunks before making the ruling. If the source text does not directly answer the question, say that at the table and make a clearly labeled temporary ruling.",
-        "\nSources Used",
-        chunks.map((chunk) => sourceLine(chunk, true)).join("\n"),
-      ].join("\n");
-    }
-
     return {
-      answer,
+      answer: buildReferenceAnswer(question, chunks, "DM"),
       sources: chunks.map(toSourceSummary),
       retrievedChunks: chunks,
-      prompt,
-      llmStatus,
+      answerMode: "retrieval",
     };
   }
 
@@ -500,49 +457,11 @@ export class KnowledgeService {
       playerReferenceChunkLimit,
       options,
     );
-    const prompt = this.buildPlayerPrompt(category, question, chunks);
-
-    if (!chunks.length) {
-      return {
-        answer:
-          "Direct Answer\nI could not verify that from the player rules reference.\n\nSources Used\nNo relevant imported rules sources were found.",
-        sources: [],
-        retrievedChunks: [],
-        prompt,
-        llmStatus: "not_used",
-      };
-    }
-
-    let answer: string;
-    let llmStatus = "generated";
-
-    try {
-      answer = await this.llm.generate(prompt);
-      answer = withConcreteListFacts(answer, question, chunks);
-    } catch (error) {
-      llmStatus =
-        error instanceof Error
-          ? `unavailable: ${error.message}`
-          : "unavailable";
-      answer = [
-        "Direct Answer",
-        "The local LLM is not available, so I retrieved relevant player rules context below.",
-        concreteFactsBlock(question, chunks)
-          ? `\nRetrieved List Details\n${concreteFactsBlock(question, chunks)}`
-          : "",
-        "\nWhat To Use At The Table",
-        chunks.map((chunk) => sourceLine(chunk, true)).join("\n"),
-        "\nSources Used",
-        chunks.map((chunk) => sourceLine(chunk, true)).join("\n"),
-      ].join("\n");
-    }
-
     return {
-      answer,
+      answer: buildReferenceAnswer(question, chunks, "player"),
       sources: chunks.map(toSourceSummary),
       retrievedChunks: chunks,
-      prompt,
-      llmStatus,
+      answerMode: "retrieval",
     };
   }
 
@@ -610,89 +529,6 @@ export class KnowledgeService {
       attributionText: document.attributionText,
       licenseText: document.licenseText,
     }));
-  }
-
-  buildPrompt(question: string, chunks: RetrievedKnowledgeChunk[]) {
-    const context = chunks
-      .map(
-        (chunk, index) =>
-          `[${index + 1}] ${chunk.sourceName} (${chunk.sourceType}) - ${chunk.sectionPath.join(" > ") || chunk.title}\n${cleanReferenceText(chunk.text)}`,
-      )
-      .join("\n\n");
-    const facts = concreteFactsBlock(question, chunks);
-
-    return `You are a private D&D 5e Dungeon Master reference assistant for a family campaign.
-
-Rules:
-1. When answering rules questions, use the provided retrieved reference context.
-2. Clearly separate rules-as-written / source-supported answer, practical DM ruling suggestion, and homebrew/campaign-specific idea.
-3. If the retrieved context does not contain enough information, say: 'I could not verify that from the provided sources.'
-4. Do not invent official D&D rules.
-5. Do not claim non-SRD material is official unless it appears in the retrieved context.
-6. Keep answers practical for someone learning to DM.
-7. Always include a Sources Used section when sources are available.
-8. Do not quote large blocks from the retrieved context. Summarize unless exact wording is needed.
-9. Cite every source you used by source name, source type, section/title, and page when available.
-10. If the question asks for a list, catalog, options, available choices, or what players can choose, enumerate the concrete entries found in the retrieved context. Do not answer only that a table or section exists.
-
-Default answer format:
-Direct Answer
-Rules Basis
-DM Ruling Suggestion
-Example at the Table
-Sources Used
-
-Question:
-${question}
-
-Concrete facts detected from retrieved context:
-${facts || "No explicit list facts detected."}
-
-Retrieved context:
-${context || "No retrieved context."}`;
-  }
-
-  buildPlayerPrompt(
-    category: PlayerReferenceCategory,
-    question: string,
-    chunks: RetrievedKnowledgeChunk[],
-  ) {
-    const context = chunks
-      .map(
-        (chunk, index) =>
-          `[${index + 1}] ${chunk.sourceName} (${chunk.sourceType}) - ${chunk.sectionPath.join(" > ") || chunk.title}\n${cleanReferenceText(chunk.text)}`,
-      )
-      .join("\n\n");
-    const facts = concreteFactsBlock(question, chunks);
-
-    return `You are a D&D 5e player reference assistant for someone learning to play.
-
-Category: ${playerReferenceCategoryLabel(category)}
-
-Rules:
-1. Use only the retrieved rules context.
-2. Explain the answer for a player, not a Dungeon Master.
-3. Do not reveal DM-only prep, hidden monster information, campaign secrets, or tactical advice based on hidden information.
-4. If the retrieved context does not contain enough information, say: 'I could not verify that from the player rules reference.'
-5. Keep the answer practical, short, and table-ready.
-6. Do not quote large blocks from the source. Summarize.
-7. Include a Sources Used section when sources are available.
-8. If the question asks for a list, options, available choices, or what the player can choose, enumerate the concrete entries found in the retrieved context.
-
-Default answer format:
-Direct Answer
-How To Use It On Your Turn
-Example
-Sources Used
-
-Question:
-${question}
-
-Concrete facts detected from retrieved context:
-${facts || "No explicit list facts detected."}
-
-Retrieved context:
-${context || "No retrieved context."}`;
   }
 
   private async findCampaignOrThrow(slug: string) {
@@ -981,21 +817,42 @@ function concreteFactsBlock(
   return lines.join("\n");
 }
 
-function withConcreteListFacts(
-  answer: string,
+function buildReferenceAnswer(
   question: string,
   chunks: RetrievedKnowledgeChunk[],
+  audience: "DM" | "player",
 ) {
-  const facts = concreteFactsBlock(question, chunks);
-  if (!facts || !isListQuestion(question)) return answer;
+  if (!chunks.length) {
+    return [
+      "Rulebook Answer",
+      "I could not verify that from the imported SRD sources.",
+      "\nSources Used",
+      "No relevant imported sources were found.",
+    ].join("\n");
+  }
 
-  return `${answer.trim()}\n\nRetrieved List Details\n${facts}`;
+  const facts = concreteFactsBlock(question, chunks);
+  const points = chunks.slice(0, 4).map((chunk) => {
+    const section = chunk.sectionPath.join(" > ") || chunk.title;
+    return `- ${section}${chunk.pageNumber ? ` (page ${chunk.pageNumber})` : ""}: ${excerpt(chunk.text)}`;
+  });
+
+  return [
+    "Rulebook Answer",
+    `These ${audience === "DM" ? "SRD" : "player-facing SRD"} passages are the closest matches for: ${question}`,
+    facts ? `\nQuick Reference\n${facts}` : "",
+    `\nRelevant Rulebook Points\n${points.join("\n")}`,
+    `\nSources Used\n${chunks.map((chunk) => sourceLine(chunk, true)).join("\n")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
-function isListQuestion(question: string) {
-  return /\b(list|available|options|choices|choose|what are|what .* can|which|catalog)\b/i.test(
-    question,
-  );
+function excerpt(text: string) {
+  const normalized = cleanReferenceText(text).replace(/\s+/g, " ").trim();
+  return normalized.length <= 460
+    ? normalized
+    : `${normalized.slice(0, 457).trimEnd()}...`;
 }
 
 function extractWeaponNames(chunks: RetrievedKnowledgeChunk[]) {
