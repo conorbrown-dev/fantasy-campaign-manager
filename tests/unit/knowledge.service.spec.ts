@@ -103,17 +103,11 @@ describe("knowledge chunking", () => {
 describe("KnowledgeService", () => {
   let prisma: MockPrismaService;
   let service: KnowledgeService;
-  const llm = {
-    generate: async () =>
-      "Direct Answer\nGenerated from the local model.\n\nSources Used\n- SRD 5.1 (SRD) - Combat",
-  };
-
   beforeEach(() => {
     prisma = createMockPrismaService();
     service = new KnowledgeService(
       prisma as never,
       new LocalEmbeddingService(),
-      llm as never,
     );
     prisma.campaign.findUnique.mockResolvedValue({
       id: "campaign-1",
@@ -363,7 +357,7 @@ describe("KnowledgeService", () => {
     );
   });
 
-  it("appends retrieved weapon names when the generated answer is vague", async () => {
+  it("includes retrieved weapon names in a deterministic rulebook answer", async () => {
     const embedding = new LocalEmbeddingService();
     prisma.knowledgeChunk.findMany.mockResolvedValue([
       {
@@ -386,13 +380,13 @@ describe("KnowledgeService", () => {
       "List the weapons available to players",
     );
 
-    expect(result.answer).toContain("Retrieved List Details");
+    expect(result.answer).toContain("Quick Reference");
     expect(result.answer).toContain(
       "Weapons found: Club, Dagger, Greatclub, Longbow, Net.",
     );
   });
 
-  it("appends retrieved playable race names when the generated answer is vague", async () => {
+  it("includes retrieved playable race names in a deterministic rulebook answer", async () => {
     const embedding = new LocalEmbeddingService();
     prisma.knowledgeChunk.findMany.mockResolvedValue([
       {
@@ -415,7 +409,7 @@ describe("KnowledgeService", () => {
       "What races can players choose?",
     );
 
-    expect(result.answer).toContain("Retrieved List Details");
+    expect(result.answer).toContain("Quick Reference");
     expect(result.answer).toContain(
       "Playable races found: Dwarf, Elf, Halfling, Human, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling.",
     );
@@ -467,7 +461,7 @@ describe("KnowledgeService", () => {
     );
   });
 
-  it("appends the Druid spell list when the generated answer is vague", async () => {
+  it("includes the Druid spell list in a deterministic rulebook answer", async () => {
     const embedding = new LocalEmbeddingService();
     prisma.knowledgeChunk.findMany.mockResolvedValue([
       {
@@ -490,34 +484,14 @@ describe("KnowledgeService", () => {
       "What spells can Druids cast?",
     );
 
-    expect(result.answer).toContain("Retrieved List Details");
+    expect(result.answer).toContain("Quick Reference");
     expect(result.answer).toContain("Druid spells found:");
     expect(result.answer).toContain("Cantrips: Druidcraft, Guidance");
     expect(result.answer).toContain("1st Level: Animal Friendship");
     expect(result.answer).toContain("9th Level: Foresight");
   });
 
-  it("constructs the DM assistant prompt with retrieved context", () => {
-    const prompt = service.buildPrompt("How does initiative work?", [
-      {
-        id: "chunk-1",
-        documentId: "doc-1",
-        sourceName: "SRD 5.1",
-        sourceType: "SRD",
-        title: "Combat",
-        sectionPath: ["Combat"],
-        text: "Roll initiative at the start of combat.",
-        textPreview: "Roll initiative at the start of combat.",
-        relevanceScore: 0.9,
-      },
-    ]);
-
-    expect(prompt).toContain("Do not invent official D&D rules.");
-    expect(prompt).toContain("How does initiative work?");
-    expect(prompt).toContain("Roll initiative at the start of combat.");
-  });
-
-  it("answers chat questions with the configured local LLM", async () => {
+  it("answers rulebook questions directly from retrieved sources", async () => {
     const embedding = new LocalEmbeddingService();
     prisma.knowledgeChunk.findMany.mockResolvedValue([
       {
@@ -541,8 +515,9 @@ describe("KnowledgeService", () => {
       "How does initiative work?",
     );
 
-    expect(result.answer).toContain("Generated from the local model.");
-    expect(result.llmStatus).toBe("generated");
+    expect(result.answer).toContain("Rulebook Answer");
+    expect(result.answer).toContain("Roll initiative at the start of combat.");
+    expect(result.answerMode).toBe("retrieval");
     expect(result.sources).toHaveLength(1);
   });
 });

@@ -467,11 +467,7 @@ export function PlayerReferencePanel({
 
       {chat ? (
         <div className="max-h-[58vh] overflow-auto border-2 border-black bg-[#f8f4e8] p-3 text-black">
-          {chat.llmStatus ? (
-            <p className="mb-2 text-xs font-black uppercase">
-              LLM: {chat.llmStatus}
-            </p>
-          ) : null}
+          <p className="mb-2 text-xs font-black uppercase">SRD source lookup</p>
           <pre className="whitespace-pre-wrap text-sm font-semibold leading-6">
             {chat.answer}
           </pre>

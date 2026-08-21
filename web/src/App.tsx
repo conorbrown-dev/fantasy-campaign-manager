@@ -1580,7 +1580,7 @@ function App() {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const response = await fetch(
-      apiUrl(`/api/campaigns/${route.slug}/knowledge/chat`),
+      apiUrl(`/api/campaigns/${route.slug}/knowledge/answer`),
       {
         method: "POST",
         headers: {
@@ -1598,7 +1598,7 @@ function App() {
     if (response.ok) {
       setKnowledgeChat(await response.json());
     } else {
-      setStatus(await formatApiError(response, "DM reference chat failed."));
+      setStatus(await formatApiError(response, "Rulebook lookup failed."));
     }
   }
 
